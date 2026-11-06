@@ -29,7 +29,7 @@
 
 ## Colocar online sem instalar nada no seu computador (Railway)
 
-O código está preparado para uma aplicação em contêiner Docker, com `railway.toml` e `Dockerfile`. A publicação **não foi realizada**: para instalar na conta do proprietário, é necessário conectar uma hospedagem compatível e definir as variáveis de ambiente na própria plataforma.
+O código está preparado para uma aplicação em contêiner Docker, com `railway.toml` e `Dockerfile`. A publicação original foi realizada no Railway; para replicar em outra conta: para instalar na conta do proprietário, é necessário conectar uma hospedagem compatível e definir as variáveis de ambiente na própria plataforma.
 
 1. Conecte sua conta Railway pelo aplicativo do ChatGPT, ou pelo painel da Railway. A hospedagem pode cobrar por processamento, memória, disco e tráfego; **não autorize nenhum plano sem entender o preço**.
 2. Crie um serviço que faça deploy deste projeto pelo `Dockerfile` (em um repositório Git privado, ou por um fluxo de publicação compatível) e configure **um volume persistente montado em `/app/data`**. Sem o volume, os projetos e vídeos podem desaparecer após novas versões ou reinícios.
@@ -160,3 +160,16 @@ Os sete testes incluem criação/edição/ordenação de projetos, proteção po
 3. Estratégia de busca/ranking com cache, controle de licenças e orquestração para documentários de 20–30 minutos.
 4. Editor com temas visuais, zoom, transições e suporte a projetos de outros editores via formatos documentados.
 5. Fila resiliente de jobs, retomada, verificações de qualidade e exportação 1080p/4K conforme hardware.
+
+
+## Instância online do usuário (novembro de 2026)
+
+- Endereço: https://estudio-video-production.up.railway.app/
+- Painel de infraestrutura: https://railway.com/project/3df4c60d-9c8d-49ab-8700-f1cf2bc82167
+- Código do projeto: https://github.com/amendokim/estudio
+- As credenciais de acesso e chaves das APIs ficam exclusivamente em **Railway → Serviço estudio-video → Variables**.
+- No menu Integrações do painel é possível visualizar o status e testar cada API sem revelar as chaves.
+- Por padrão, o piloto automático busca até **16 cenas** por vídeo; a busca manual permanece em 8 cenas por lote, para limitar consumo de cotas.
+- O volume inicial tem 500 MB. Para vídeos longos, aumente-o antes de começar; a aplicação verifica o espaço livre antes do render.
+
+**Importante:** esta base ainda não substitui revisão editorial, conferência da licença dos clipes e verificação factual do roteiro. Sem chave de OpenAI, o usuário pode colar seu roteiro e usar a narração automática; sem chave de Pexels/Pixabay, as cenas terão mídia própria carregada ou imagens substitutas.
