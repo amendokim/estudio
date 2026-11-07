@@ -152,6 +152,37 @@ def project_qa(studio, pid: str):
         expected = width / height
         if abs(ratio - expected) > .02:
             warnings.append('Proporção do arquivo MP4 não corresponde ao formato solicitado.')
+    source_mix = {
+        'youtube_origin_licensed': 0.0,
+        'stock_pixabay_pexels': 0.0,
+        'original_graphics': 0.0,
+        'other_archive_or_media': 0.0,
+    }
+    mismatched_sources = []
+    for idx, scene in enumerate(scenes, 1):
+        provider = scene.get('media_provider') or ''
+        duration = max(1.0, float(scene.get('duration') or 1))
+        page = (scene.get('source_page') or '').casefold()
+        author = (scene.get('author') or '').casefold()
+        if provider == 'wikimedia' and ('ponte_da_amizade_completa_50_anos' in page or
+                                         'vídeo originalmente publicado no youtube' in author):
+            group = 'youtube_origin_licensed'
+        elif provider in ('pixabay', 'pexels'):
+            group = 'stock_pixabay_pexels'
+            if 'ponte da amizade' in (p.get('title') or '').casefold() and re.search(
+                    r'mountain|fjord|lake|glacier|waterfall|snow|alps', page):
+                mismatched_sources.append(idx)
+        elif provider == 'original':
+            group = 'original_graphics'
+        else:
+            group = 'other_archive_or_media'
+        source_mix[group] += duration
+    total_mix = sum(source_mix.values()) or 1
+    source_mix = {k: round(v, 2) for k, v in source_mix.items()}
+    source_mix_share = {k: round(100 * v / total_mix, 1) for k, v in source_mix.items()}
+    if mismatched_sources:
+        warnings.append('Revisar cenas com possível mídia de paisagem incompatível: ' +
+                        ', '.join(map(str, mismatched_sources)))
     generic = sum(s.get('media_provider') in ('pixabay', 'pexels') for s in scenes)
     if generic:
         warnings.append(f'{generic} cena(s) usam bancos genéricos. Revisar coerência visual e identificar imagens ilustrativas.')
@@ -159,6 +190,8 @@ def project_qa(studio, pid: str):
             'scene_timeline_seconds': round(scene_seconds, 2),
             'target_ratio': p.get('ratio'), 'intended_resolution': f'{width}x{height}',
             'file': actual or None, 'warnings': warnings,
+            'source_mix_seconds': source_mix, 'source_mix_percent': source_mix_share,
+            'mismatched_scene_numbers': mismatched_sources,
             'paid_external_services_used_by_this_check': False}
 
 
