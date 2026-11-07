@@ -276,6 +276,7 @@ const projects=await req('/api/projects');const box=document.getElementById('pro
 for(const p of projects){const section=document.createElement('p');section.textContent=p.title+' — '+p.status+' — '+p.duration_minutes+' min ';
 const view=document.createElement('a');view.href='/?project='+encodeURIComponent(p.id);view.textContent='Abrir';section.append(view);
 const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);
+const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status!=='concluído'){const button=document.createElement('button');button.textContent='Colocar na fila de produção';button.onclick=async()=>{
 try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));if(!plan.can_render_here){alert(plan.reason);return}
 if(!confirm('Iniciar a produção de '+p.title+'? Isso consome CPU, armazenamento e recursos da hospedagem.'))return;
