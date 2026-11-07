@@ -98,7 +98,7 @@ def generate_timed_narration(studio, pid):
             partial = folder / f'narration_{i:03d}.partial.mp3'
             boundaries = []
             with partial.open('wb') as audio:
-                async for event in edge_tts.Communicate(str(scene['text']),voice=project['voice']).stream():
+                async for event in edge_tts.Communicate(str(scene['text']),voice=project['voice'],boundary='WordBoundary').stream():
                     if event['type']=='audio':
                         audio.write(event['data'])
                     elif event['type']=='WordBoundary':
@@ -140,6 +140,25 @@ def generate_timed_narration(studio, pid):
 def install(studio):
     old_tts=studio.tts_task
     old_subtitles=studio.subtitles_for
+    old_render=studio.render_task
+
+    def audited_render(pid):
+        result = old_render(pid)
+        p = studio.get_project(pid)
+        if p.get('status') == 'concluído':
+            try:
+                import studio_quality
+                q = studio_quality.project_qa(studio, pid)
+                source = q.get('file') or {}
+                print('[studio-edit] final duration=%.2fs, size=%sx%s, '
+                      'word_timing=%s, sources=%s' %
+                      (source.get('duration_seconds') or 0,
+                       source.get('width') or '?', source.get('height') or '?',
+                       (studio.project_dir(pid) / 'audio' / 'word_timing.json').is_file(),
+                       q.get('source_mix_percent')), flush=True)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                print('[studio-edit] QA report unavailable: ' + type(exc).__name__,flush=True)
+        return result
 
     def narration(pid):
         project=studio.get_project(pid)
@@ -162,6 +181,7 @@ def install(studio):
 
     studio.tts_task=narration
     studio.subtitles_for=subtitles
+    studio.render_task=audited_render
 
     @studio.app.get('/api/quality/render-readiness/{pid}')
     def render_readiness(pid: str):
@@ -178,6 +198,8 @@ def install(studio):
                 'note':'1080p requer STUDIO_RENDER_1080P=1 e 2GB livres. Sem upscale.'}
 
 if __name__=='__main__':
+    # Edge TTS defaults to SentenceBoundary; explicit WordBoundary is essential
+    # for timing every 3–6-word subtitle chunk.
     assert _stamp(61.235)=='0:01:01.24'
     assert _stamp(61.235,True)=='00:01:01,235'
     assert len(_groups([{'text':'palavra','start':i,'end':i+.2} for i in range(13)]))==4
