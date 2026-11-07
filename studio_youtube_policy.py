@@ -78,7 +78,10 @@ def origin_is_youtube(metadata, title):
     if title == HISTORIC_BRIDGE:
         return True  # Reviewed CC BY 3.0 video: Wikimedia File page has original YouTube ID.
     for key in ("Source", "Credit", "Description", "Attribution"):
-        text = plain((metadata or {}).get(key, {}).get("value", ""))
+        raw = str((metadata or {}).get(key, {}).get("value", ""))
+        # The archive link is frequently inside the HTML href and is lost when
+        # stripping markup, so inspect both forms without trusting either alone.
+        text = raw + " " + plain(raw)
         if re.search(r"(?:youtube\.com/watch|youtu\.be/|youtube\.com/embed/)", text, re.I):
             return True
     return False
@@ -89,7 +92,11 @@ def relevant_to_project(title, project):
     name = normalized(title).replace("_", " ")
     context = normalized(project.get("title", "") + " " + project.get("topic", ""))
     if "ponte da amizade" in context:
-        return "ponte da amizade" in name
+        # Archive footage of the actual border cities may illustrate those scenes,
+        # but never pretend that generic stock depicts the bridge.
+        return any(label in name for label in
+                   ("ponte da amizade", "friendship bridge", "puente de la amistad",
+                    "ciudad del este", "foz do iguacu"))
     stop = {"video", "film", "documentario", "documentary", "historia", "historico",
             "sobre", "para", "brasil", "mundo", "the", "with", "uma", "um", "dos",
             "desta", "atraves", "piloto", "cinematografico", "minutos", "partes"}
@@ -130,29 +137,37 @@ def _commons_candidates(project):
         return _cache[cache_key][1]
     result = []
     try:
-        terms = '"Ponte da Amizade"' if cache_key == "ponte_da_amizade" else " ".join(
-            re.findall(r"[\w-]{5,}", project.get("title", ""))[:3]
-        )
-        if not terms:
-            return []
-        params = {
-            "action": "query", "format": "json", "generator": "search",
-            "gsrsearch": terms + " filetype:video", "gsrnamespace": "6",
-            "gsrlimit": "12", "prop": "imageinfo",
-            "iiprop": "url|mime|size|extmetadata", "iiextmetadatafilter":
-            "LicenseShortName|Artist|Source|Credit|Description",
-            "iiurlwidth": "320",
-        }
+        if cache_key == "ponte_da_amizade":
+            terms = ('"Ponte da Amizade"', '"Ciudad del Este"',
+                     '"Foz do Iguaçu"', '"Friendship Bridge"')
+        else:
+            terms = (" ".join(re.findall(r"[\\w-]{5,}",
+                                     project.get("title", ""))[:3]),)
         with httpx.Client(timeout=16, follow_redirects=False) as client:
-            response = client.get(COMMONS_API, params=params,
-                                  headers={"User-Agent": USER_AGENT})
-            response.raise_for_status()
-            pages = (response.json().get("query", {}).get("pages") or {}).values()
-            for page in pages:
-                for info in page.get("imageinfo") or ():
-                    clip = clip_from_commons(page, info, project)
-                    if clip:
-                        result.append(clip)
+            for search_term in terms[:4]:
+                if not search_term:
+                    continue
+                params = {
+                    "action": "query", "format": "json", "generator": "search",
+                    "gsrsearch": search_term + " filetype:video",
+                    "gsrnamespace": "6", "gsrlimit": "12", "prop": "imageinfo",
+                    "iiprop": "url|mime|size|extmetadata",
+                    "iiextmetadatafilter":
+                    "LicenseShortName|Artist|Source|Credit|Description",
+                    "iiurlwidth": "320",
+                }
+                try:
+                    response = client.get(COMMONS_API, params=params,
+                                          headers={"User-Agent": USER_AGENT})
+                    response.raise_for_status()
+                    pages = (response.json().get("query", {}).get("pages") or {}).values()
+                    for page in pages:
+                        for info in page.get("imageinfo") or ():
+                            clip = clip_from_commons(page, info, project)
+                            if clip:
+                                result.append(clip)
+                except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                    continue
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         print("[youtube-policy] Commons search unavailable: " + type(exc).__name__, flush=True)
     # The known original report is checked separately; never trust search ranking alone.
@@ -254,7 +269,11 @@ def _suitable_scene(scene, title):
         return False
     title_norm = normalized(title)
     context = normalized((scene.get("query") or "") + " " + (scene.get("text") or ""))
-    if "ponte da amizade" in title_norm:
+    if "ponte da amizade" in normalized(project.get("title", "")):
+        if "ciudad del este" in title_norm:
+            return "ciudad" in context or "paraguai" in context
+        if "foz do iguacu" in title_norm:
+            return "foz" in context or "brasil" in context
         return ("ponte" in context or "bridge" in context) and \
                ("paraguai" in context or "amizade" in context or "foz" in context or "fronteira" in context)
     useful = [x for x in re.findall(r"[a-z]{5,}", title_norm) if x not in
