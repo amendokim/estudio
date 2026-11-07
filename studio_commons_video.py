@@ -124,7 +124,7 @@ def repair_stock_video(studio, pid, limit, result):
         return result
     project = studio.get_project(pid)
     scenes = project["scenes"]
-    if not scenes or len(scenes) > 16:
+    if not scenes or len(scenes) > 120:
         return result
     runtime = sum(max(1.0, float(s.get("duration") or 8)) for s in scenes)
     video = sum(max(1.0, float(s.get("duration") or 8))
