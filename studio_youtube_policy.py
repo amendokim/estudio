@@ -92,11 +92,18 @@ def relevant_to_project(title, project):
     name = normalized(title).replace("_", " ")
     context = normalized(project.get("title", "") + " " + project.get("topic", ""))
     if "ponte da amizade" in context:
-        # Archive footage of the actual border cities may illustrate those scenes,
-        # but never pretend that generic stock depicts the bridge.
-        return any(label in name for label in
-                   ("ponte da amizade", "friendship bridge", "puente de la amistad",
-                    "ciudad del este", "foz do iguacu"))
+        # Avoid wrongly using Iguazu Falls / Itaipu as footage of the bridge.
+        if any(bad in name for bad in
+               ("cataratas", "waterfall", "iguazu falls", "itaipu",
+                "mountain", "lake", "fjord", "parque nacional")):
+            return False
+        if any(label in name for label in
+               ("ponte da amizade", "friendship bridge", "puente de la amistad")):
+            return True
+        return (any(city in name for city in ("ciudad del este", "foz do iguacu"))
+                and any(road in name for road in
+                        ("ponte", "puente", "bridge", "road", "rodovia",
+                         "trafego", "transito", "traffic", "border", "fronteira")))
     stop = {"video", "film", "documentario", "documentary", "historia", "historico",
             "sobre", "para", "brasil", "mundo", "the", "with", "uma", "um", "dos",
             "desta", "atraves", "piloto", "cinematografico", "minutos", "partes"}
@@ -543,6 +550,8 @@ if __name__ == "__main__":
     assert relevant_to_project("File:Ponte da Amizade 1965.webm", {"title":"Ponte da Amizade"})
     assert relevant_to_project("File:Ciudad del Este road.webm", {"title":"Ponte da Amizade"})
     assert not relevant_to_project("File:Swiss Alps mountain lake.webm", {"title":"Ponte da Amizade"})
+    assert not relevant_to_project("File:Foz do Iguaçu cataratas.webm", {"title":"Ponte da Amizade"})
+    assert relevant_to_project("File:Ciudad del Este traffic border.webm", {"title":"Ponte da Amizade"})
     assert origin_is_youtube({"Source":{"value":'<a href="https://www.youtube.com/watch?v=abc12345678">source</a>'}}, "File:Another documentary.webm")
     assert safe_video_reference("https://youtu.be/dQw4w9WgXcQ") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     assert safe_video_reference("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
