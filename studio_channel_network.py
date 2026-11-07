@@ -41,6 +41,20 @@ INSPIRATION_MODELS = (
     ("perspective", "{subject}: a história vista de outro ângulo"),
     ("questions", "As perguntas mais importantes sobre {subject}"),
 )
+INSPIRATION_MODELS_ES = (
+    ("context", "Lo que casi nadie explica sobre {subject}"),
+    ("consequences", "Cómo {subject} cambia lo que creemos saber"),
+    ("mechanism", "Qué ocurre realmente detrás de {subject}"),
+    ("perspective", "{subject}: una perspectiva que merece atención"),
+    ("questions", "Las preguntas que debemos hacernos sobre {subject}"),
+)
+INSPIRATION_MODELS_EN = (
+    ("context", "What Most People Miss About {subject}"),
+    ("consequences", "How {subject} Changes What We Think We Know"),
+    ("mechanism", "What Really Happens Behind {subject}"),
+    ("perspective", "{subject}: Another Side of the Story"),
+    ("questions", "The Important Questions About {subject}"),
+)
 ACCENTS = ["#e9a95b", "#69b6c7", "#c8849c", "#a5c46f", "#d4bf8b"]
 
 class ChannelCreate(BaseModel):
@@ -286,7 +300,9 @@ def original_concept(studio, channel, subject, snapshot):
     top = snapshot["results"][0]
     # Build a distinct framing, not a title rewrite or copied story.
     subject = re.sub(r"\s+", " ", subject).strip(" .")[:95]
-    for angle, template in INSPIRATION_MODELS:
+    templates = (INSPIRATION_MODELS_ES if channel.get("language")=="es" else
+                 INSPIRATION_MODELS_EN if channel.get("language")=="en" else INSPIRATION_MODELS)
+    for angle, template in templates:
         title = template.format(subject=subject)
         if title not in used:
             break
@@ -296,7 +312,13 @@ def original_concept(studio, channel, subject, snapshot):
         raise HTTPException(409, "O título está excessivamente próximo da fonte pesquisada.")
     return {
         "angle": angle, "title": title[:110],
-        "hook": f"Por que {subject} importa agora? Separar contexto, consequências e evidências verificáveis.",
+        "hook": (
+            f"¿Qué no estamos viendo sobre {subject}? Explorar causas, límites y pruebas verificables."
+            if channel.get("language")=="es" else
+            f"What are we missing about {subject}? Examine causes and checkable evidence."
+            if channel.get("language")=="en" else
+            f"Por que {subject} importa agora? Separar contexto, consequências e evidências verificáveis."
+        ),
         "source_urls": [x["url"] for x in snapshot["results"][:5]],
         "inspiration": {
             "reference_title": top["title"], "reference_url": top["url"],
@@ -334,7 +356,8 @@ def thumbnail(studio, channel, idea_id, subject, angle):
     limit=18
     lines=textwrap.wrap(subject,width=limit,break_long_words=False)[:4]
     d.rounded_rectangle((54,54,250,101),radius=12,fill=accent)
-    d.text((74,65),"DOCUMENTÁRIO",font=f_small,fill="#081522")
+    d.text((74,65),{"es":"HISTORIA","en":"STORY","pt":"DOCUMENTÁRIO"}.get(channel.get("language"),"VÍDEO"),
+           font=f_small,fill="#081522")
     for i,line in enumerate(lines):
         d.text((58,155+i*103),line,font=f_big,fill="#ffffff",stroke_width=3,stroke_fill="#10151b")
     d.rectangle((56,620,700,629),fill=accent)
@@ -465,6 +488,7 @@ if __name__=="__main__":
     assert validate_times(["18:00","12:00"],2)==["12:00","18:00"]
     assert len(query_variants({"niche":"documentários","search_terms":["History in English","Historia en español"]},"História"))==3
     assert len(INSPIRATION_MODELS)==5
+    assert "Lo que" in INSPIRATION_MODELS_ES[0][1]
     appfile=Path("/app/app.py")
     if not appfile.is_file():
         raise SystemExit("Missing app.py")
