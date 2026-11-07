@@ -470,6 +470,25 @@ def install(studio):
     def get_report(pid: str):
         return report(studio.get_project(pid))
 
+    @studio.app.get("/api/youtube-policy/projects/{pid}/discover")
+    def discover_documentary_sources(pid: str):
+        # Read-only preview: only Commons metadata, no downloads, no video render.
+        project = studio.get_project(pid)
+        candidates = _commons_candidates(project)
+        return {
+            "project_id": pid,
+            "target_percent": target_percent(),
+            "max_seconds_per_clip": MAX_YOUTUBE_CLIP_SECONDS,
+            "origin": "Wikimedia Commons, arquivos originalmente publicados no YouTube",
+            "count": len(candidates),
+            "sources": [{"title": a["title"], "source_page": a["source_page"],
+                         "license": a["license"], "author": a["author"]}
+                        for a in candidates[:20]],
+            "note": "A busca é gratuita e não baixa vídeos. A seleção depende do tema "
+                    "da narração, da licença verificada e dos limites do renderizador."
+        }
+
+
     @studio.app.get("/api/youtube-policy/projects/{pid}/candidates")
     def list_review_candidates(pid: str):
         studio.get_project(pid)
