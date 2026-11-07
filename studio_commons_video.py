@@ -105,6 +105,9 @@ def install(studio):
 
 
 if __name__ == "__main__":
+    assert relevant_pixabay_clip({"tags": "bridge, traffic"}, "Ponte da Amizade")
+    assert not relevant_pixabay_clip({"tags": "mountain, glacier, lake"}, "Ponte da Amizade")
+    assert not relevant_pixabay_clip({"tags": "river, landscape"}, "Ponte da Amizade")
     # At Docker build time, register the extension without touching OAuth/MCP logic.
     from pathlib import Path
     application = Path("/app/app.py")
@@ -118,6 +121,30 @@ if __name__ == "__main__":
             + '_licensed_video_extension.install(__import__("sys").modules[__name__])\n',
             encoding="utf-8",
         )
+
+
+# Avoid visually convincing but geographically false mountain/lake footage
+# when narrating about the Brazil-Paraguay crossing.
+_BRIDGE_BAD = re.compile(
+    r"\b(?:alps?|alpine|mountain|mountains|glacier|fjord|"
+    r"snow|snowy|switzerland|norway|ocean|beach|waterfall|"
+    r"mountain-lake|lake)\b", re.I)
+_BRIDGE_GOOD = re.compile(
+    r"\b(?:bridge|bridges|traffic|road|roads|highway|"
+    r"trucks?|border|pedestrians?|city|cities|urban|"
+    r"vehicles?|crossing|construction)\b", re.I)
+
+
+def relevant_pixabay_clip(hit, project_title):
+    """Subject-relevance gate; generic clips are labelled as illustrative."""
+    title = (project_title or "").casefold()
+    if "ponte da amizade" not in title:
+        return True
+    description = str(hit.get("tags") or "") + " " + str(hit.get("pageURL") or "")
+    if _BRIDGE_BAD.search(description):
+        return False
+    return bool(_BRIDGE_GOOD.search(description))
+
 
 def repair_stock_video(studio, pid, limit, result):
     """Replace image-only coverage with small legally licensed Pixabay clips.
@@ -175,6 +202,8 @@ def repair_stock_video(studio, pid, limit, result):
                     except (ValueError, httpx.HTTPError):
                         searches[term] = []
                 for hit in searches[term]:
+                    if not relevant_pixabay_clip(hit, project.get("title") or ""):
+                        continue
                     videos = hit.get("videos") or {}
                     for rendition in ("small", "tiny", "medium"):
                         item = videos.get(rendition) or {}
