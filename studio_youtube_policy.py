@@ -6,7 +6,8 @@ that originally appeared on YouTube. Does NOT download from YouTube, assume a
 Priority: (1) verified CC BY / CC0 / public domain,
           (2) documented permission via safe local source manifest,
           (3) criticism/analysis: review queue only,
-          (4) standard license as background: not automatic.
+          (4) standard-licensed videos without prior permission: candidates only;
+              substantive legal review required before reuse.  No YouTube download.
 It never blocks a documentary or forces unsuitable footage to meet the target.
 """
 from __future__ import annotations
@@ -33,8 +34,11 @@ PRIORITIES = (
      "automatic": True, "note": "Somente arquivos locais com comprovante de autorização cadastrado."},
     {"priority": 3, "category": "criticism_analysis",
      "automatic": False, "note": "Encaminhar para revisão humana caso a caso; não presumir fair use."},
-    {"priority": 4, "category": "standard_licence_background",
-     "automatic": False, "note": "Excluído do uso automático, independentemente de trechos curtos."},
+    {"priority": 4, "category": "standard_licence_unlicensed",
+     "automatic": False, "can_be_candidate": True, "requires_review": True,
+     "note": "Última prioridade: pode ser sugerido sem autorização prévia. "
+             "Uso depende de análise da finalidade, direitos aplicáveis e obtenção legal do arquivo. "
+             "Não entra automaticamente na renderização."},
 )
 _cache = {}
 
@@ -231,7 +235,8 @@ def report(project):
             "target_met": bool(total and selected >= total * target / 100),
             "priorities": PRIORITIES,
             "note": "30% é uma meta, nunca autorização para usar material sem licença. "
-                    "Trechos para crítica/análise exigem revisão; licença padrão como B-roll é excluída."}
+                    "Fontes sem autorização podem ser candidatas de última prioridade, sujeitas à revisão. "
+                    "Não são baixadas nem incorporadas automaticamente."}
 
 
 def _suitable_scene(scene, title):
@@ -305,7 +310,73 @@ def enforce(studio, pid):
     return after
 
 
+
+# A candidate URL is reference metadata, not a licence or downloaded asset.
+# No use of copyright-protected streams by this policy.
+from urllib.parse import parse_qs
+from pydantic import BaseModel, Field
+from fastapi import HTTPException
+import uuid
+from datetime import datetime, timezone
+
+
+class UnlicensedCandidate(BaseModel):
+    youtube_url: str = Field(min_length=15, max_length=250)
+    rationale: str = Field(min_length=15, max_length=900)
+    # This is an aesthetic preference, NOT a copyright safety threshold.
+    suggested_seconds: int = Field(default=8, ge=1, le=30)
+
+
+def safe_video_reference(url: str) -> str:
+    try:
+        parsed = urlsplit(url.strip())
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port:
+            raise ValueError("URL deve usar HTTPS")
+        host = (parsed.hostname or "").lower()
+        if host in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+            if parsed.path != "/watch":
+                raise ValueError("Envie um link de vídeo normal")
+            ids = parse_qs(parsed.query).get("v") or []
+            video_id = ids[0] if len(ids) == 1 else ""
+        elif host == "youtu.be":
+            video_id = parsed.path.lstrip("/")
+        else:
+            raise ValueError("Somente links oficiais do YouTube")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            raise ValueError("ID de vídeo inválido")
+        return "https://www.youtube.com/watch?v=" + video_id
+    except (ValueError, TypeError):
+        raise ValueError("Link YouTube inválido ou não suportado")
+
+
+def candidate_schema(studio):
+    with studio.db() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS youtube_review_candidates (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            youtube_url TEXT NOT NULL,
+            rationale TEXT NOT NULL,
+            suggested_seconds INTEGER NOT NULL,
+            source_priority INTEGER NOT NULL DEFAULT 4,
+            state TEXT NOT NULL DEFAULT 'pending_review',
+            created_at TEXT NOT NULL,
+            UNIQUE(project_id, youtube_url)
+        )""")
+
+
+def candidate_list(studio, project_id):
+    with studio.db() as conn:
+        rows = conn.execute(
+            """SELECT id, youtube_url, rationale, suggested_seconds,
+                      source_priority, state, created_at
+               FROM youtube_review_candidates WHERE project_id=?
+               ORDER BY created_at DESC LIMIT 50""", (project_id,)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def install(studio):
+    candidate_schema(studio)
     original = studio._auto_find_media
     def use_policy(pid, limit):
         result = original(pid, limit)
@@ -322,11 +393,49 @@ def install(studio):
                 "youtube_api_key_required_for_commons": False,
                 "downloads_from_youtube_enabled": False,
                 "criticism_analysis_auto_enabled": False,
+                "unlicensed_candidates_enabled": True,
+                "standard_license_auto_render_enabled": False,
                 "standard_license_background_enabled": False}
 
     @studio.app.get("/api/youtube-policy/projects/{pid}")
     def get_report(pid: str):
         return report(studio.get_project(pid))
+
+    @studio.app.get("/api/youtube-policy/projects/{pid}/candidates")
+    def list_review_candidates(pid: str):
+        studio.get_project(pid)
+        items = candidate_list(studio, pid)
+        return {"project_id": pid, "items": items, "review_required": True,
+                "note": "Candidatos não autorizam reuso ou download; revise caso a caso."}
+
+    @studio.app.post("/api/youtube-policy/projects/{pid}/candidates")
+    def add_review_candidate(pid: str, payload: UnlicensedCandidate):
+        studio.get_project(pid)
+        try:
+            reference = safe_video_reference(payload.youtube_url)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        if len(candidate_list(studio, pid)) >= 50:
+            raise HTTPException(429, "Limite de 50 referências por projeto")
+        now = datetime.now(timezone.utc).isoformat()
+        with studio.db() as conn:
+            if conn.execute(
+                "SELECT id FROM youtube_review_candidates WHERE project_id=? AND youtube_url=?",
+                (pid, reference)
+            ).fetchone():
+                raise HTTPException(409, "Este link já está na lista")
+            candidate_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO youtube_review_candidates
+                   (id,project_id,youtube_url,rationale,suggested_seconds,created_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (candidate_id, pid, reference, payload.rationale.strip(),
+                 payload.suggested_seconds, now)
+            )
+        return {"id": candidate_id, "state": "pending_review",
+                "source_priority": 4, "youtube_url": reference,
+                "used_in_video": False, "downloaded": False}
+
 
 
 if __name__ == "__main__":
@@ -339,6 +448,8 @@ if __name__ == "__main__":
     assert not allowed_license("CC BY-ND 4.0")
     assert not authorized_media_url("https://youtube.com/watch?v=abc")
     assert authorized_media_url("https://upload.wikimedia.org/wikipedia/commons/1/12/test.webm")
+    assert safe_video_reference("https://youtu.be/dQw4w9WgXcQ") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert safe_video_reference("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     from pathlib import Path
     appfile = Path("/app/app.py")
     if not appfile.is_file():
