@@ -76,13 +76,13 @@ def order(studio, channel, payload):
     if payload.auto_script:
         if auto_script_ready():
             with studio.db() as db:
-                db.execute("UPDATE channel_network_ideas SET status='queued_writing' WHERE id=?",
-                           (idea_id,))
+                db.execute("UPDATE channel_network_ideas SET status='queued_writing',duration_minutes=? WHERE id=?",
+                           (payload.duration_minutes,idea_id))
             state="queued_writing"
         else:
             with studio.db() as db:
-                db.execute("UPDATE channel_network_ideas SET status='script_backend_missing' WHERE id=?",
-                           (idea_id,))
+                db.execute("UPDATE channel_network_ideas SET status='script_backend_missing',duration_minutes=? WHERE id=?",
+                           (payload.duration_minutes,idea_id))
             state="script_backend_missing"
     return {"channel_id":channel["id"],"idea":package,
             "research_count":len(data["results"]),"scheduled_slot":reservation,
@@ -113,8 +113,7 @@ def writer(studio,row):
            "Crie novas explicações e confira fatos com fontes primárias." %
            (row["topic"],row["angle"],row["hook"]))
     try:
-        minutes=int(os.getenv("STUDIO_NETWORK_DEFAULT_MINUTES","5"))
-        minutes=max(1,min(60,minutes))
+        minutes=max(1,min(60,int(row.get("duration_minutes") or 5)))
         pid=studio_factory.generate_script(
             studio,topic,minutes,"16:9",title=row["title"])
         project=studio.get_project(pid)
@@ -202,7 +201,7 @@ def loop(studio):
             maintenance(studio)
             if enabled():
                 with studio.db() as db:
-                    row=db.execute("""SELECT id,topic,angle,title,hook FROM channel_network_ideas
+                    row=db.execute("""SELECT id,topic,angle,title,hook,duration_minutes FROM channel_network_ideas
                                      WHERE status='queued_writing'
                                      ORDER BY created_at LIMIT 1""").fetchone()
                 if row:
