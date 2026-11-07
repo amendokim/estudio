@@ -105,9 +105,6 @@ def install(studio):
 
 
 if __name__ == "__main__":
-    assert relevant_pixabay_clip({"tags": "bridge, traffic"}, "Ponte da Amizade")
-    assert not relevant_pixabay_clip({"tags": "mountain, glacier, lake"}, "Ponte da Amizade")
-    assert not relevant_pixabay_clip({"tags": "river, landscape"}, "Ponte da Amizade")
     # At Docker build time, register the extension without touching OAuth/MCP logic.
     from pathlib import Path
     application = Path("/app/app.py")
@@ -242,3 +239,8 @@ def repair_stock_video(studio, pid, limit, result):
     print("[stock-video] coverage=%.1f%%, replacements=%d"
           % (100 * video / runtime, replaced), flush=True)
     return result
+
+if __name__ == "__main__":
+    assert relevant_pixabay_clip({"tags": "bridge, traffic"}, "Ponte da Amizade")
+    assert not relevant_pixabay_clip({"tags": "mountain, glacier, lake"}, "Ponte da Amizade")
+    assert not relevant_pixabay_clip({"tags": "river, landscape"}, "Ponte da Amizade")
