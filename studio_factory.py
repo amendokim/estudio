@@ -153,14 +153,23 @@ def gemini_json(prompt: str):
     return json.loads(''.join(part.get('text', '') for part in parts))
 
 
-def generate_script(studio, topic: str, minutes: int, ratio: str, title: str | None = None):
+def generate_script(studio, topic: str, minutes: int, ratio: str, title: str | None = None,
+                    language: str = 'pt'):
     """Creates a human-reviewable script; does NOT automatically publish anything."""
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('Para escrever roteiros automaticamente, configure GEMINI_API_KEY no Railway.')
+    voices = {'pt':'pt-BR-AntonioNeural', 'es':'es-ES-AlvaroNeural',
+              'en':'en-US-GuyNeural'}
+    outputs = {'pt':'português brasileiro','es':'espanhol natural',
+               'en':'inglês natural'}
+    if language not in voices:
+        raise RuntimeError('Idioma de canal não suportado')
+    output_lang = outputs[language]
     chapters = math.ceil(minutes / 5)
     outline = gemini_json(
-        'Você é roteirista brasileiro de documentários de alto rigor factual. '
-        f'Crie esboço de {chapters} capítulos sobre {topic!r}, em português brasileiro. '
+        'Você é roteirista de documentários originais de alto rigor factual. '
+        f'Crie esboço de {chapters} capítulos sobre {topic!r}. '
+        f'O resultado final deve ser escrito integralmente em {output_lang}. '
         'Responda JSON {"titulo":"...","capitulos":[{"titulo":"...","objetivo":"..."}]} '
         f'com exatamente {chapters} capítulos. Nunca invente datas, números, fontes ou citações; '
         'assuntos controversos devem ser qualificados e as afirmações devem ser verificadas antes da publicação.')
@@ -174,7 +183,7 @@ def generate_script(studio, topic: str, minutes: int, ratio: str, title: str | N
         result = gemini_json(
             f'Crie a narração COMPLETA do capítulo {index}/{chapters}, de um documentário original sobre {topic!r}. '
             f'Título do capítulo: {ch.get("titulo", "")}. Objetivo: {ch.get("objetivo", "")}. '
-            f'Produza aproximadamente {target_words} palavras de narração em português do Brasil, '
+            f'Produza aproximadamente {target_words} palavras de narração em {output_lang}, '
             'divididas em 8 a 10 cenas coerentes. A cada cena inclua busca_visual em inglês '
             'com 2 a 5 palavras concretas relacionadas ao local/tempo/objeto. '
             'Evite afirmações históricas específicas sem verificação; se faltar evidência, narre com cautela. '
@@ -198,7 +207,8 @@ def generate_script(studio, topic: str, minutes: int, ratio: str, title: str | N
         raise RuntimeError(f'Roteiro curto ({actual_words} palavras para alvo de {desired_words}); nenhum projeto foi criado')
     name = (title or str(outline.get('titulo') or topic))[:160]
     project = studio.create_project(studio.NewProject(title=name, topic=topic,
-                                                     duration_minutes=minutes, ratio=ratio))
+                                                     duration_minutes=minutes, ratio=ratio,
+                                                     voice=voices[language]))
     full = '\n\n'.join(s['text'] for s in scenes)
     studio.set_script(project['id'], full, structured=scenes)
     return project['id']
