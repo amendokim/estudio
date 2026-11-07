@@ -141,7 +141,7 @@ def _commons_candidates(project):
             terms = ('"Ponte da Amizade"', '"Ciudad del Este"',
                      '"Foz do Iguaçu"', '"Friendship Bridge"')
         else:
-            terms = (" ".join(re.findall(r"[\\w-]{5,}",
+            terms = (" ".join(re.findall(r"[\w-]{5,}",
                                      project.get("title", ""))[:3]),)
         with httpx.Client(timeout=16, follow_redirects=False) as client:
             for search_term in terms[:4]:
@@ -521,6 +521,10 @@ if __name__ == "__main__":
     assert not allowed_license("CC BY-ND 4.0")
     assert not authorized_media_url("https://youtube.com/watch?v=abc")
     assert authorized_media_url("https://upload.wikimedia.org/wikipedia/commons/1/12/test.webm")
+    assert relevant_to_project("File:Ponte da Amizade 1965.webm", {"title":"Ponte da Amizade"})
+    assert relevant_to_project("File:Ciudad del Este road.webm", {"title":"Ponte da Amizade"})
+    assert not relevant_to_project("File:Swiss Alps mountain lake.webm", {"title":"Ponte da Amizade"})
+    assert origin_is_youtube({"Source":{"value":'<a href="https://www.youtube.com/watch?v=abc12345678">source</a>'}}, "File:Another documentary.webm")
     assert safe_video_reference("https://youtu.be/dQw4w9WgXcQ") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     assert safe_video_reference("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     from pathlib import Path
