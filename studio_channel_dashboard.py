@@ -58,7 +58,11 @@ Não existe uma lista completa de vídeos virais mundiais, por isso combinamos b
 <div class="pane"><h2>Pesquisar e criar proposta</h2>
 <label>Canal<select id="activeChannel"></select></label>
 <label>Assunto do novo vídeo<input id="topic" placeholder="Ponte da Amizade e a fronteira Brasil–Paraguai"></label>
-<button id="research">Buscar vídeos recentes e criar proposta</button>
+<label>Duração planejada<select id="duration">
+<option value="2">2 minutos — teste</option><option value="5" selected>5 minutos</option>
+<option value="10">10 minutos</option><option value="30">30 minutos</option></select></label>
+<button id="order">Quero um vídeo — pesquisar, preparar e reservar horário</button>
+<button class="secondary" id="research">Apenas pesquisar e criar proposta</button>
 <div id="results"></div></div>
 <div class="pane"><h2>Projetos e calendário</h2><p class="muted">Os agendamentos nesta fase são rascunhos locais até que o canal seja autorizado via Google OAuth.</p>
 <div id="calendar"></div></div>
@@ -80,7 +84,15 @@ async function refresh(){
   card.append(el('h3',c.name));
   card.append(el('p',c.niche+' | '+c.language+' | '+c.timezone));
   card.append(el('p',c.daily_quantity+' vídeo(s) por dia, horários: '+c.hours.join(', ')));
-  card.append(el('p','Publicação: '+(c.yt_channel_id?'identificador informado (OAuth pendente)':'canal ainda não conectado ao YouTube')));
+  card.append(el('p','Identificador no YouTube: '+(c.yt_channel_id||'não conectado')));
+  const conn=await request('/api/network/channels/'+c.id+'/connection');
+  card.append(el('p','OAuth: '+(conn.connected ? 'conectado como '+conn.identity.yt_channel_name :
+    'pendente')+(conn.upload_enabled?' • uploads autorizados':' • uploads desligados')));
+  if(conn.oauth_ready&&!conn.connected){
+   const a=el('a','Conectar conta do YouTube');
+   a.href='/api/network/channels/'+c.id+'/connect';a.style.display='block';a.style.margin='6px 0';
+   card.append(a);
+  }
   const toggle=btn(c.enabled?'Desativar agenda':'Ativar agenda',async()=>{
    try{await request('/api/network/channels/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({daily_quantity:c.daily_quantity,hours:c.hours,
@@ -102,6 +114,7 @@ async function showIdeas(id){
   if(sources.length){const p=el('p','Referências analisadas: ');for(const u of sources.slice(0,3)){
    const a=el('a',new URL(u).searchParams.get('v')||'Vídeo');a.href=u;a.target='_blank';
    a.rel='noopener noreferrer';p.append(a,el('span','  '));}card.append(p)}
+  card.append(el('p','Duração alvo: '+(x.duration_minutes||5)+' minutos • projeto: '+(x.project_id||'pendente')));
   if(x.scheduled_at){card.append(el('p','Planejado para: '+new Date(x.scheduled_at).toLocaleString('pt-BR')))}
   else{
    const date=el('input');date.type='date';date.value=new Date(Date.now()+86400000).toISOString().slice(0,10);
@@ -112,6 +125,20 @@ async function showIdeas(id){
        body:JSON.stringify({plan_id:x.id,date:date.value,time:time.value})});
     message('Horário salvo: '+p.local_time+'. Ainda não houve upload.');showIdeas(id)
    }catch(e){message(e.message,true)}}))
+  }
+  if(!x.project_id){
+   const t=el('p','Quando estiver pronto um MP4, você poderá vinculá-lo aqui. A publicação só ocorre com OAuth e a opção de upload ativada.');
+   t.className='muted';card.append(t);
+   const input=el('input');input.placeholder='ID do projeto renderizado';input.style.maxWidth='380px';
+   card.append(input,btn('Vincular MP4',async()=>{
+    try{
+     await request('/api/network/channels/'+id+'/ideas/'+x.id+'/link',
+       {method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({project_id:input.value.trim()})});
+     message('Projeto vinculado. Upload automático ainda depende da autorização do canal.');
+     showIdeas(id);
+    }catch(err){message(err.message,true)}
+   },'secondary'))
   }
   $('calendar').append(card)
  }
@@ -127,6 +154,24 @@ $('create').onsubmit=async(e)=>{
  try{await request('/api/network/channels',{method:'POST',headers:{'Content-Type':'application/json'},
  body:JSON.stringify(payload)});message('Canal cadastrado.');refresh()}
  catch(err){message(err.message,true)}
+};
+$('order').onclick=async()=>{
+ const id=$('activeChannel').value;
+ if(!id)return message('Cadastre um canal primeiro.',true);
+ const button=$('order');button.disabled=true;
+ message('Criando ordem por canal e analisando vídeos recentes...');
+ try{
+  const result=await request('/api/network/channels/'+id+'/order',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({topic:$('topic').value,
+       duration_minutes:Number($('duration').value),
+       auto_schedule:true,auto_script:true})
+  });
+  message('Proposta registrada: '+result.idea.title+' • '+
+          result.status+'. '+(result.message||''));
+  await showIdeas(id);
+ }catch(e){message(e.message,true)}
+ finally{button.disabled=false}
 };
 $('research').onclick=async()=>{
  const id=$('activeChannel').value;if(!id)return message('Cadastre um canal primeiro.',true);
