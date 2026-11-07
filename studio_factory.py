@@ -266,11 +266,20 @@ DASHBOARD = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8">
 <textarea id="topics" rows="5" placeholder="História da Ponte da Amizade\nO surgimento das grandes cidades"></textarea>
 <label>Minutos por documentário <input type="number" id="minutes" min="1" max="60" value="30"></label>
 <button id="write">Gerar roteiros do lote</button></div>
-<div class="panel"><h2>Projetos e fila</h2><button id="refresh">Atualizar</button><div id="jobs"></div></div>
+<div class="panel"><h2>Projetos existentes</h2><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
+<div class="panel"><h2>Fila de produção</h2><button id="refresh">Atualizar</button><div id="jobs"></div></div>
 <script>
 async function req(url,init){const response=await fetch(url,init);const data=await response.json();if(!response.ok)throw Error(data.detail||JSON.stringify(data));return data;}
 function td(row,value){const cell=document.createElement('td');cell.textContent=String(value??'');row.appendChild(cell);return cell;}
 async function refresh(){try{const s=await req('/api/factory/status');document.getElementById('info').textContent=JSON.stringify(s,null,2);
+const projects=await req('/api/projects');const box=document.getElementById('projects');box.replaceChildren();
+for(const p of projects){const section=document.createElement('p');section.textContent=p.title+' — '+p.status+' — '+p.duration_minutes+' min ';
+const view=document.createElement('a');view.href='/?project='+encodeURIComponent(p.id);view.textContent='Abrir';section.append(view);
+const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);
+if(p.status!=='concluído'){const button=document.createElement('button');button.textContent='Colocar na fila de produção';button.onclick=async()=>{
+try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));if(!plan.can_render_here){alert(plan.reason);return}
+if(!confirm('Iniciar a produção de '+p.title+'? Isso consome CPU, armazenamento e recursos da hospedagem.'))return;
+await req('/api/factory/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:p.id,operation:'autopilot'})});refresh()}catch(e){alert(e.message)}};section.append(' ',button)}box.append(section)}
 const jobs=await req('/api/factory/jobs');const holder=document.getElementById('jobs');holder.replaceChildren();const table=document.createElement('table');const head=document.createElement('tr');['Título/Tema','Operação','Estado','Erro / resultado'].forEach(x=>{const th=document.createElement('th');th.textContent=x;head.appendChild(th)});table.appendChild(head);
 for(const item of jobs.jobs){const tr=document.createElement('tr');const first=td(tr,item.title||item.topic||item.project_id);if(item.project_id){const a=document.createElement('a');a.href='/?project='+encodeURIComponent(item.project_id);a.textContent='Abrir projeto';first.append(' ',a)}td(tr,item.operation);td(tr,item.state);td(tr,item.error);table.appendChild(tr)}holder.appendChild(table);
 }catch(e){document.getElementById('info').textContent='Erro: '+e.message}}
