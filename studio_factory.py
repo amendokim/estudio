@@ -266,7 +266,7 @@ DASHBOARD = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8">
 <textarea id="topics" rows="5" placeholder="História da Ponte da Amizade\nO surgimento das grandes cidades"></textarea>
 <label>Minutos por documentário <input type="number" id="minutes" min="1" max="60" value="30"></label>
 <button id="write">Gerar roteiros do lote</button></div>
-<div class="panel"><h2>Projetos existentes</h2><p><small>Meta: 30% de registros originários do YouTube. Fontes sem autorização podem ser sugeridas em última prioridade, mas ficam pendentes de revisão e não entram automaticamente no MP4.</small></p><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
+<div class="panel"><h2>Projetos existentes</h2><p><small>Meta de 30% de materiais originários do YouTube, no máximo 10 segundos por trecho. Seleção e substituição automáticas: fontes com direitos não verificáveis são descartadas sem interromper a produção.</small></p><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
 <div class="panel"><h2>Fila de produção</h2><button id="refresh">Atualizar</button><div id="jobs"></div></div>
 <script>
 async function req(url,init){const response=await fetch(url,init);const data=await response.json();if(!response.ok)throw Error(data.detail||JSON.stringify(data));return data;}
@@ -278,20 +278,13 @@ const storage=await req('/api/factory/storage');
 for(const p of projects){const section=document.createElement('p');section.textContent=p.title+' — '+p.status+' — '+p.duration_minutes+' min ';
 const view=document.createElement('a');view.href='/?project='+encodeURIComponent(p.id);view.textContent='Abrir';section.append(view);
 const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Fontes do YouTube';archival.onclick=async()=>{try{const data=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));alert('Meta de arquivos originários do YouTube: '+data.target_percent+'%\nParticipação verificada: '+data.actual_percent+'%\nFaltam: '+data.missing_seconds+' segundos.\n\nO uso automático inclui apenas licenças verificadas e autorizações documentadas. Revisão necessária para crítica/análise.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
-const review=document.createElement('button');review.textContent='Sugerir trecho YouTube (revisão)';
-review.onclick=async()=>{
- const url=prompt('Cole o link oficial do vídeo do YouTube. Será salvo como referência, sem download ou inclusão no MP4:');
- if(!url)return;
- const rationale=prompt('Explique por que esse registro é necessário para a narração (crítica/análise/contexto). É preciso revisar os direitos antes de usá-lo:');
- if(!rationale)return;
- try{
-  const saved=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id)+'/candidates',
-   {method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({youtube_url:url,rationale:sanitizeRationale(rationale),suggested_seconds:8})});
-  alert('Referência registrada como última prioridade. Status: '+saved.state+'. Não foi baixada nem incluída no vídeo.');
- }catch(err){alert(err.message)}
-};
-section.append(' ',review);
+const autoPolicy=document.createElement('button');autoPolicy.textContent='Regra automática: 10 s';
+autoPolicy.onclick=async()=>{try{
+ const rules=await req('/api/youtube-policy');
+ const summary=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));
+ alert('Seleção automática ativa.\nMeta YouTube: '+summary.target_percent+'%\nTrecho máximo: '+rules.max_youtube_clip_seconds+' segundos.\nParticipação selecionada: '+summary.actual_percent+'%.\nFaltam: '+summary.missing_seconds+' segundos.\nFontes sem direito de uso verificável são substituídas automaticamente por mídia licenciada.');
+}catch(e){alert(e.message)}};
+section.append(' ',autoPolicy);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
 if(storage.storage_configured){const arc=document.createElement('button');arc.textContent='Arquivar MP4';arc.onclick=async()=>{if(!confirm('Copiar este MP4 para o bucket? A operação pode gerar cobranças de armazenamento.'))return;try{const x=await req('/api/factory/archive/'+encodeURIComponent(p.id),{method:'POST'});alert(x.note||'Armazenado.');refresh()}catch(e){alert(e.message)}};section.append(' ',arc);
