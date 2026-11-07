@@ -12,5 +12,7 @@ RUN mkdir -p /app/data
 COPY cleanup_old_projects_once.py /app/cleanup_old_projects_once.py
 COPY studio_factory.py /app/studio_factory.py
 RUN python /app/studio_factory.py
+COPY studio_longform.py /app/studio_longform.py
+RUN python /app/studio_longform.py
 EXPOSE 8000
 CMD ["sh", "-c", "python /app/cleanup_old_projects_once.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
