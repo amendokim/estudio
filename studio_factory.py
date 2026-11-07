@@ -285,6 +285,18 @@ autoPolicy.onclick=async()=>{try{
  alert('Seleção automática ativa.\nMeta YouTube: '+summary.target_percent+'%\nTrecho máximo: '+rules.max_youtube_clip_seconds+' segundos.\nParticipação selecionada: '+summary.actual_percent+'%.\nFaltam: '+summary.missing_seconds+' segundos.\nFontes sem direito de uso verificável são substituídas automaticamente por mídia licenciada.');
 }catch(e){alert(e.message)}};
 section.append(' ',autoPolicy);
+const archiveSearch=document.createElement('button');archiveSearch.textContent='Buscar acervo licenciado';
+archiveSearch.onclick=async()=>{archiveSearch.disabled=true;
+ try{
+  const list=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id)+'/discover');
+  const items=(list.sources||[]).slice(0,12).map(x=>'• '+x.title+' | '+x.license+'\n'+x.source_page);
+  alert('Acervo documental identificado: '+list.count+' fonte(s).\n'+
+    'Cada trecho pode usar no máximo '+list.max_seconds_per_clip+' segundos.\n\n'+
+    (items.join('\n\n')||'Ainda não foram encontrados arquivos suficientes para esse tema.'));
+ }catch(e){alert('Consulta ao arquivo indisponível: '+e.message)}
+ finally{archiveSearch.disabled=false}
+};
+section.append(' ',archiveSearch);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
 if(storage.storage_configured){const arc=document.createElement('button');arc.textContent='Arquivar MP4';arc.onclick=async()=>{if(!confirm('Copiar este MP4 para o bucket? A operação pode gerar cobranças de armazenamento.'))return;try{const x=await req('/api/factory/archive/'+encodeURIComponent(p.id),{method:'POST'});alert(x.note||'Armazenado.');refresh()}catch(e){alert(e.message)}};section.append(' ',arc);
