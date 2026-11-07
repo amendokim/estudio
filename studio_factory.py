@@ -260,7 +260,7 @@ DASHBOARD = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>body{font:16px system-ui;background:#0a1223;color:#eaf0fa;max-width:940px;margin:24px auto;padding:12px}
 .panel{background:#152338;padding:22px;border-radius:16px;margin-bottom:16px}input,select,textarea,button{font:inherit;padding:10px;margin:4px 0;border-radius:8px;border:1px solid #405570}input,textarea,select{width:100%;box-sizing:border-box;background:#081426;color:white}button{background:#40b8ea;color:#001c2b;border:0;cursor:pointer}code{color:#8fe0c7}table{width:100%;border-collapse:collapse}td,th{text-align:left;border-bottom:1px solid #30445a;padding:9px}small{color:#9fb3c9}a{color:#8adcff}</style>
-<h1>Fábrica de documentários</h1><p><a href="/">← Voltar ao Estúdio IA</a></p>
+<h1>Fábrica de documentários</h1><p><a href="/">← Voltar ao Estúdio IA</a> · <a href="/rede">Rede de Canais IA — pesquisa mundial, thumbnails e calendário</a></p>
 <div class="panel"><h2>Capacidade e segurança</h2><pre id="info">Carregando…</pre></div>
 <div class="panel"><h2>Preparar lote de roteiros</h2><p><small>Exige GEMINI_API_KEY. Cada linha é um tema; a API do Gemini pode cobrar pelos roteiros. Não renderiza nem publica automaticamente.</small></p>
 <textarea id="topics" rows="5" placeholder="História da Ponte da Amizade\nO surgimento das grandes cidades"></textarea>
