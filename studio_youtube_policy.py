@@ -5,9 +5,9 @@ that originally appeared on YouTube. Does NOT download from YouTube, assume a
 "ten seconds" exemption, or treat a YouTube CC search result as a downloadable file.
 Priority: (1) verified CC BY / CC0 / public domain,
           (2) documented permission via safe local source manifest,
-          (3) criticism/analysis: review queue only,
-          (4) standard-licensed videos without prior permission: candidates only;
-              substantive legal review required before reuse.  No YouTube download.
+          (3) criticism/analysis: automatically skip if legal basis is not verifiable,
+          (4) standard-licensed videos without prior permission: skip automatically
+              unless valid rights are already documented. No YouTube downloads.
 It never blocks a documentary or forces unsuitable footage to meet the target.
 """
 from __future__ import annotations
@@ -275,7 +275,9 @@ def enforce(studio, pid):
     used_local = {s.get("media_local") for s in project["scenes"] if s.get("media_local")}
     selected = before["selected_seconds"]
     target_seconds = before["total_seconds"] * before["target_percent"] / 100
-    # Preserve order: Creative Commons / public domain first, then prior documented permission.
+    # Preserve order: Creative Commons / public domain first, then documented permission.
+    # Categories 3 and 4 are automatically declined in the absence of a verified right
+    # to use the clip; do not ask the owner to approve every documentary.
     for group in (candidates, local):
         for asset in group:
             if selected >= target_seconds:
