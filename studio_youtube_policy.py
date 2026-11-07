@@ -241,9 +241,9 @@ def report(project):
             "missing_seconds": round(max(0, total * target / 100 - selected), 1),
             "target_met": bool(total and selected >= total * target / 100),
             "priorities": PRIORITIES,
-            "note": "30% é uma meta, nunca autorização para usar material sem licença. "
-                    "Fontes sem autorização podem ser candidatas de última prioridade, sujeitas à revisão. "
-                    "Não são baixadas nem incorporadas automaticamente."}
+            "note": "Meta de 30% e limite máximo de 10 segundos por trecho. "
+                    "Se a licença ou autorização não puder ser verificada automaticamente, "
+                    "o sistema descarta o material e usa outra fonte licenciada."}
 
 
 def _suitable_scene(scene, title):
@@ -388,6 +388,12 @@ def candidate_list(studio, project_id):
 
 def install(studio):
     candidate_schema(studio)
+    with studio.db() as conn:
+        conn.execute("""UPDATE youtube_review_candidates
+                        SET state='auto_skipped_unverified'
+                        WHERE state='pending_review'""")
+    print("[youtube-policy] Auto-selection enabled; per-source limit=%ds; target=%d%%"
+          % (MAX_YOUTUBE_CLIP_SECONDS, target_percent()), flush=True)
     original = studio._auto_find_media
     original_render = studio.render_task
 
@@ -449,8 +455,8 @@ def install(studio):
     def list_review_candidates(pid: str):
         studio.get_project(pid)
         items = candidate_list(studio, pid)
-        return {"project_id": pid, "items": items, "review_required": True,
-                "note": "Candidatos não autorizam reuso ou download; revise caso a caso."}
+        return {"project_id": pid, "items": items, "review_required_to_continue": False,
+                "note": "Referências não verificadas são ignoradas automaticamente pela renderização."}
 
     @studio.app.post("/api/youtube-policy/projects/{pid}/candidates")
     def add_review_candidate(pid: str, payload: UnlicensedCandidate):
@@ -471,14 +477,17 @@ def install(studio):
             candidate_id = str(uuid.uuid4())
             conn.execute(
                 """INSERT INTO youtube_review_candidates
-                   (id,project_id,youtube_url,rationale,suggested_seconds,created_at)
-                   VALUES(?,?,?,?,?,?)""",
+                   (id,project_id,youtube_url,rationale,suggested_seconds,state,created_at)
+                   VALUES(?,?,?,?,?,?,?)""",
                 (candidate_id, pid, reference, payload.rationale.strip(),
-                 payload.suggested_seconds, now)
+                 min(payload.suggested_seconds, MAX_YOUTUBE_CLIP_SECONDS),
+                 "auto_skipped_unverified", now)
             )
-        return {"id": candidate_id, "state": "pending_review",
+        return {"id": candidate_id, "state": "auto_skipped_unverified",
                 "source_priority": 4, "youtube_url": reference,
-                "used_in_video": False, "downloaded": False}
+                "suggested_seconds": min(payload.suggested_seconds, MAX_YOUTUBE_CLIP_SECONDS),
+                "used_in_video": False, "downloaded": False,
+                "note": "Decisão automática: ignorado porque o uso e a obtenção não foram verificados."}
 
 
 
