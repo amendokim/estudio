@@ -20,5 +20,7 @@ COPY studio_cinematic_pilot.py /app/studio_cinematic_pilot.py
 RUN python /app/studio_cinematic_pilot.py
 COPY studio_quality.py /app/studio_quality.py
 RUN python /app/studio_quality.py
+COPY studio_youtube_policy.py /app/studio_youtube_policy.py
+RUN python -m py_compile /app/studio_youtube_policy.py && python /app/studio_youtube_policy.py
 EXPOSE 8000
 CMD ["sh", "-c", "python /app/cleanup_old_projects_once.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
