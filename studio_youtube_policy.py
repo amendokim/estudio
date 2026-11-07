@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import httpx
 
 TARGET_DEFAULT = 30
+MAX_YOUTUBE_CLIP_SECONDS = 10
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 HISTORIC_BRIDGE = "File:Ponte da Amizade completa 50 anos.webm"
 USER_AGENT = "MeuEstudioIA/0.8 (https://github.com/amendokim/estudio; rights-audited-video)"
@@ -33,12 +34,12 @@ PRIORITIES = (
     {"priority": 2, "category": "documented_permission",
      "automatic": True, "note": "Somente arquivos locais com comprovante de autorização cadastrado."},
     {"priority": 3, "category": "criticism_analysis",
-     "automatic": False, "note": "Encaminhar para revisão humana caso a caso; não presumir fair use."},
+     "automatic": True, "auto_decision": "skip_if_unverified",
+     "note": "Análise automática do contexto: se a exceção não puder ser fundamentada, usar mídia licenciada."},
     {"priority": 4, "category": "standard_licence_unlicensed",
-     "automatic": False, "can_be_candidate": True, "requires_review": True,
-     "note": "Última prioridade: pode ser sugerido sem autorização prévia. "
-             "Uso depende de análise da finalidade, direitos aplicáveis e obtenção legal do arquivo. "
-             "Não entra automaticamente na renderização."},
+     "automatic": True, "auto_decision": "skip_if_unverified",
+     "note": "Última prioridade: considerar referência, mas descartar automaticamente quando não houver "
+             "base de uso verificável e arquivo obtido legalmente. Não realiza download do YouTube."},
 )
 _cache = {}
 
@@ -231,6 +232,12 @@ def report(project):
     return {"project_id": project["id"], "target_percent": target,
             "actual_percent": round(100 * selected / total, 1) if total else 0.0,
             "selected_seconds": round(selected, 1), "total_seconds": round(total, 1),
+            "max_youtube_clip_seconds": MAX_YOUTUBE_CLIP_SECONDS,
+            "automatic_legal_fallback": "skip_unverified_and_use_licensed_stock",
+            "overlong_archive_scenes": [
+                idx for idx, scene in enumerate(scenes, 1)
+                if recognized_archival_scene(scene) and duration(scene) > MAX_YOUTUBE_CLIP_SECONDS
+            ],
             "missing_seconds": round(max(0, total * target / 100 - selected), 1),
             "target_met": bool(total and selected >= total * target / 100),
             "priorities": PRIORITIES,
@@ -276,6 +283,8 @@ def enforce(studio, pid):
             if asset.get("url") in used or (asset.get("media_local") and asset["media_local"] in used_local):
                 continue
             for scene in project["scenes"]:
+                if duration(scene) > MAX_YOUTUBE_CLIP_SECONDS:
+                    continue
                 if not _suitable_scene(scene, asset["title"]):
                     continue
                 try:
@@ -378,6 +387,36 @@ def candidate_list(studio, project_id):
 def install(studio):
     candidate_schema(studio)
     original = studio._auto_find_media
+    original_render = studio.render_task
+
+    def capped_render(pid):
+        # Narration can change scene durations AFTER media selection.
+        # Verify again immediately before FFmpeg and replace any oversized
+        # YouTube-origin source with licensed stock automatically.
+        project = studio.get_project(pid)
+        if project.get("status") != "concluído":
+            overlong = [scene for scene in project.get("scenes") or []
+                        if recognized_archival_scene(scene)
+                        and duration(scene) > MAX_YOUTUBE_CLIP_SECONDS]
+            if overlong:
+                with studio.db() as conn:
+                    for scene in overlong:
+                        conn.execute("""UPDATE scenes SET media_url='',media_local='',
+                           media_kind='',media_provider='',source_page='',author='',thumb=''
+                           WHERE id=? AND project_id=?""", (scene["id"], pid))
+                print("[youtube-policy] Replaced %d overlong archive scenes with stock candidates" %
+                      len(overlong), flush=True)
+                # The underlying selector observes the same ten-second cap.
+                studio._auto_find_media(pid, max(16, len(project.get("scenes") or [])))
+                final = studio.get_project(pid)
+                if any(recognized_archival_scene(x) and
+                       duration(x) > MAX_YOUTUBE_CLIP_SECONDS
+                       for x in final.get("scenes") or []):
+                    raise RuntimeError("YouTube archive scene exceeded the ten-second hard cap")
+        return original_render(pid)
+
+    studio.render_task = capped_render
+
     def use_policy(pid, limit):
         result = original(pid, limit)
         try:
@@ -395,7 +434,10 @@ def install(studio):
                 "criticism_analysis_auto_enabled": False,
                 "unlicensed_candidates_enabled": True,
                 "standard_license_auto_render_enabled": False,
-                "standard_license_background_enabled": False}
+                "standard_license_background_enabled": False,
+                "max_youtube_clip_seconds": MAX_YOUTUBE_CLIP_SECONDS,
+                "automatic_decisions": True,
+                "uncertain_copyright_fallback": "licensed_stock"}
 
     @studio.app.get("/api/youtube-policy/projects/{pid}")
     def get_report(pid: str):
@@ -440,6 +482,7 @@ def install(studio):
 
 if __name__ == "__main__":
     # Build-time smoke checks ensure licensing rejects NC/ND/SA variants and unsafe URLs.
+    assert MAX_YOUTUBE_CLIP_SECONDS == 10
     assert allowed_license("CC BY 3.0")
     assert allowed_license("CC0")
     assert allowed_license("Public domain")
