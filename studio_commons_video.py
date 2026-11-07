@@ -95,7 +95,7 @@ def install(studio):
             except (httpx.HTTPError, ValueError, KeyError, OSError):
                 # Falha no Commons não deve impedir a produção com Pixabay.
                 break
-        return original(pid, limit)
+        return repair_stock_video(studio, pid, limit, original(pid, limit))
 
     studio._auto_find_media = with_licensed_video
 
@@ -114,3 +114,98 @@ if __name__ == "__main__":
             + '_licensed_video_extension.install(__import__("sys").modules[__name__])\n',
             encoding="utf-8",
         )
+
+def repair_stock_video(studio, pid, limit, result):
+    """Replace image-only coverage with small legally licensed Pixabay clips.
+    No YouTube scraping and no OpenAI API usage. Generic clips are illustrative.
+    """
+    import os
+    if not os.getenv("PIXABAY_API_KEY"):
+        return result
+    project = studio.get_project(pid)
+    scenes = project["scenes"]
+    if not scenes or len(scenes) > 16:
+        return result
+    runtime = sum(max(1.0, float(s.get("duration") or 8)) for s in scenes)
+    video = sum(max(1.0, float(s.get("duration") or 8))
+                for s in scenes if s.get("media_kind") == "video")
+    if video / runtime >= 0.9:
+        return result
+    used = {s.get("media_url") for s in scenes if s.get("media_url")}
+    searches = {}
+    fallback = [
+        "bridge aerial", "bridge traffic", "river aerial", "road traffic",
+        "city aerial", "truck highway", "bridge", "market street",
+        "river landscape", "bridge aerial"
+    ]
+    keywords = [
+        (("rio", "paraná", "river", "água"), "river aerial"),
+        (("caminh", "mercador", "comércio"), "truck highway"),
+        (("cidade", "ciudad", "urbano"), "city aerial"),
+        (("trânsito", "tráfego", "carro"), "road traffic"),
+        (("constru", "inaugura", "história"), "bridge construction"),
+        (("ponte", "bridge", "travessia"), "bridge"),
+    ]
+    replaced = 0
+    with httpx.Client(timeout=18, follow_redirects=False) as client:
+        for scene in scenes:
+            if scene.get("media_kind") == "video":
+                continue
+            context = (scene.get("query") or "").casefold()
+            pos = int(scene.get("position") or 0)
+            terms = [term for triggers, term in keywords
+                     if any(word in context for word in triggers)]
+            terms += [fallback[pos % len(fallback)], "bridge", "traffic", "river"]
+            selected = None
+            for term in dict.fromkeys(terms):
+                if term not in searches:
+                    try:
+                        response = client.get(
+                            "https://pixabay.com/api/videos/",
+                            params={"key": os.environ["PIXABAY_API_KEY"],
+                                    "q": term, "lang": "en", "per_page": 20,
+                                    "safesearch": "true", "page": 1},
+                        )
+                        response.raise_for_status()
+                        searches[term] = response.json().get("hits", [])
+                    except (ValueError, httpx.HTTPError):
+                        searches[term] = []
+                for hit in searches[term]:
+                    videos = hit.get("videos") or {}
+                    for rendition in ("small", "tiny", "medium"):
+                        item = videos.get(rendition) or {}
+                        url = item.get("url") or ""
+                        size = int(item.get("size") or 0)
+                        page = hit.get("pageURL") or ""
+                        if not (url and page.startswith("https://pixabay.com/") and
+                                studio._approved_url(url, "pixabay") and
+                                url not in used and
+                                (not size or size < 9 * 1024 * 1024)):
+                            continue
+                        selected = (
+                            url, page, str(hit.get("user") or "Pixabay")[:100]
+                            + " | Pixabay | Imagens ilustrativas",
+                            item.get("thumbnail") or "",
+                        )
+                        break
+                    if selected:
+                        break
+                if selected:
+                    break
+            if not selected:
+                continue
+            with studio.db() as conn:
+                conn.execute(
+                    """UPDATE scenes SET media_url=?,media_kind='video',
+                       media_provider='pixabay',source_page=?,author=?,thumb=?,
+                       media_local='' WHERE id=? AND project_id=?""",
+                    (*selected, scene["id"], pid),
+                )
+            used.add(selected[0])
+            replaced += 1
+            video += max(1.0, float(scene.get("duration") or 8))
+            if video / runtime >= 0.95:
+                break
+    print("[stock-video] coverage=%.1f%%, replacements=%d"
+          % (100 * video / runtime, replaced), flush=True)
+    return result
