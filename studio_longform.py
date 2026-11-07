@@ -202,6 +202,77 @@ def render(studio: Any, pid: str):
         print(f"[longform] failed: {pid}, {str(exc)[:300]}", flush=True)
 
 
+
+def narration_key(scene: dict, voice: str) -> str:
+    return hashlib.sha256((voice + "\n" + str(scene.get('text') or '')).encode()).hexdigest()
+
+
+def narrate(studio: Any, pid: str):
+    """Resumable TTS using per-scene audio + integrity markers.
+
+    Only used on long projects and never calls a paid text-generation API.
+    The Edge TTS backend is external, so availability and terms can vary.
+    """
+    try:
+        import edge_tts
+        p = studio.get_project(pid)
+        scenes = p['scenes']
+        if not scenes:
+            raise RuntimeError('Roteiro sem cenas para narração')
+        _check_free(studio, 120)
+        voice = p['voice']
+        folder = studio.project_dir(pid) / 'audio'
+        folder.mkdir(parents=True, exist_ok=True)
+        completed = []
+
+        async def run():
+            for i, scene in enumerate(scenes):
+                path = folder / f'narration_{i:03d}.mp3'
+                marker = folder / f'narration_{i:03d}.sha256'
+                digest = narration_key(scene, voice)
+                duration = (_duration(studio, path) if marker.is_file() and
+                            marker.read_text().strip() == digest else 0.)
+                if duration < 0.3:
+                    marker.unlink(missing_ok=True)
+                    partial = path.with_name(path.stem + '.partial' + path.suffix)
+                    for attempt in range(3):
+                        try:
+                            partial.unlink(missing_ok=True)
+                            await edge_tts.Communicate(scene['text'], voice=voice).save(str(partial))
+                            duration = _duration(studio, partial)
+                            if duration < 0.3:
+                                raise RuntimeError('TTS gerou áudio vazio')
+                            partial.replace(path)
+                            marker.write_text(digest)
+                            break
+                        except Exception:
+                            partial.unlink(missing_ok=True)
+                            if attempt == 2:
+                                raise
+                            await asyncio.sleep(2 ** attempt)
+                completed.append(path)
+                with studio.db() as conn:
+                    conn.execute('UPDATE scenes SET duration=? WHERE id=? AND project_id=?',
+                                 (max(1., duration), scene['id'], pid))
+                studio.update_project(pid, status='gerando narração',
+                                      progress=10 + int(70 * (i+1)/len(scenes)))
+
+        asyncio.run(run())
+        files = folder / 'narration_longform.txt'
+        files.write_text(''.join("file '" + str(path.resolve()).replace("'", "'\\''") + "'\n"
+                                 for path in completed), encoding='utf-8')
+        output = folder / 'narration_full.mp3'
+        _atomic_encode(studio, ['-f','concat','-safe','0','-i',str(files), '-c:a',
+                                'libmp3lame','-b:a','160k'], output,
+                       timeout=max(300,len(scenes)*20))
+        studio.update_project(pid, narration=str(output.relative_to(studio.MEDIA)),
+                              status='narração pronta', progress=85, error='')
+        print(f'[longform] narration complete: {pid}, {len(completed)} scenes',flush=True)
+    except Exception as exc:
+        studio.update_project(pid,status='erro',error=str(exc)[:1000],progress=0)
+        print(f'[longform] narration failed: {pid}, {str(exc)[:300]}',flush=True)
+
+
 def describe(studio: Any, pid: str) -> dict:
     p = studio.get_project(pid)
     out = studio.project_dir(pid) / "export" / "longform_segments"
@@ -237,6 +308,61 @@ def register(studio: Any):
         return render(studio, pid)
 
     studio.render_task = render_with_checkpoints
+
+    original_tts = studio.tts_task
+
+    def narration_with_checkpoints(pid: str):
+        p = studio.get_project(pid)
+        if int(p.get('duration_minutes') or 0) < MIN_LONG_MINUTES:
+            return original_tts(pid)
+        return narrate(studio, pid)
+
+    studio.tts_task = narration_with_checkpoints
+
+    original_autofill = studio._auto_find_media
+
+    def fill_longform_media(pid: str, limit: int):
+        p = studio.get_project(pid)
+        if int(p.get('duration_minutes') or 0) < MIN_LONG_MINUTES:
+            return original_autofill(pid, limit)
+        budget = max(16, min(int(os.getenv('STUDIO_LONGFORM_MEDIA_SCAN_LIMIT','64')), 120))
+        result = None
+        previous_missing = len([x for x in p['scenes'] if not x.get('media_url') and
+                                not x.get('media_local')])
+        for _ in range((budget + 15) // 16):
+            result = original_autofill(pid, 16)
+            remaining = len([x for x in studio.get_project(pid)['scenes']
+                             if not x.get('media_url') and not x.get('media_local')])
+            if not remaining or remaining >= previous_missing:
+                break
+            previous_missing = remaining
+        return result
+
+    studio._auto_find_media = fill_longform_media
+
+    original_autopilot = studio.autopilot_task
+
+    def safe_autopilot(pid: str):
+        p = studio.get_project(pid)
+        if int(p.get('duration_minutes') or 0) >= MIN_LONG_MINUTES:
+            import studio_factory as factory
+            estimate = factory.estimate(studio, p)
+            if not estimate['can_render_here']:
+                studio.update_project(pid, status='erro', progress=0,
+                                      error=estimate['reason'][:1000])
+                return
+        return original_autopilot(pid)
+
+    studio.autopilot_task = safe_autopilot
+
+    # The dashboard is kept in the factory extension; expose chapter progress here.
+    import studio_factory as factory
+    old_html = factory.DASHBOARD
+    needle = "section.append(' ',inspect);"
+    if "Ver capítulos" not in old_html and needle in old_html:
+        extra = """section.append(' ',inspect);
+const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);"""
+        factory.DASHBOARD = old_html.replace(needle, extra)
 
     @studio.app.get("/api/factory/chapters/{pid}")
     def chapter_plan(pid: str):
