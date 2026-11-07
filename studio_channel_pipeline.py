@@ -185,9 +185,19 @@ def fill_daily_schedule(studio):
         if not channel["enabled"]:
             continue
         available=next_available_slot(studio,channel)
-        if not available:
+        if not available or available.astimezone(timezone.utc)>network.now()+timedelta(hours=36):
             continue
-        # One plan per pass. Each loop waits 90 seconds, reducing API bursts.
+        # Do not generate many future drafts in rapid succession. Each channel
+        # gets at most one automatic research/plan attempt in any four hours.
+        with studio.db() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS channel_network_auto_ticks(
+                channel_id TEXT PRIMARY KEY,last_attempt TEXT NOT NULL)""")
+            row=db.execute("SELECT last_attempt FROM channel_network_auto_ticks WHERE channel_id=?",
+                           (channel["id"],)).fetchone()
+            if row and row["last_attempt"]>network.iso(network.now()-timedelta(hours=4)):
+                continue
+            db.execute("INSERT OR REPLACE INTO channel_network_auto_ticks VALUES(?,?)",
+                       (channel["id"],network.iso(network.now())))
         try:
             order(studio,channel,VideoOrder(topic="",duration_minutes=5,
                                            auto_schedule=True,auto_script=True))
