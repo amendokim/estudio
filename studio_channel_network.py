@@ -114,6 +114,9 @@ def schema(studio):
         c.execute("""CREATE TABLE IF NOT EXISTS channel_network_search_cache (
           cache_key TEXT PRIMARY KEY, payload TEXT NOT NULL,
           expires_at TEXT NOT NULL)""")
+        columns={r["name"] for r in c.execute("PRAGMA table_info(channel_network_ideas)")}
+        if "duration_minutes" not in columns:
+            c.execute("ALTER TABLE channel_network_ideas ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 5")
         c.execute("CREATE INDEX IF NOT EXISTS idx_channel_network_ideas_sched ON channel_network_ideas(channel_id,scheduled_at)")
 
 def unpack_channel(row):
