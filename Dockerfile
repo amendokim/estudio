@@ -25,4 +25,6 @@ RUN python -m py_compile /app/studio_youtube_policy.py && python /app/studio_you
 COPY studio_edit_polish.py /app/studio_edit_polish.py
 RUN python -m py_compile /app/studio_edit_polish.py && python /app/studio_edit_polish.py
 EXPOSE 8000
-CMD ["sh", "-c", "python /app/cleanup_old_projects_once.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
+RUN python -m py_compile /app/cleanup_rendered_tests_once.py
+CMD ["sh", "-c", "python /app/cleanup_old_projects_once.py && python /app/cleanup_rendered_tests_once.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
