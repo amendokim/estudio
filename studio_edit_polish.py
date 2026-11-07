@@ -180,7 +180,7 @@ def install(studio):
 if __name__=='__main__':
     assert _stamp(61.235)=='0:01:01.24'
     assert _stamp(61.235,True)=='00:01:01,235'
-    assert len(_groups([{'text':'palavra','start':i,'end':i+.2} for i in range(13)]))==3
+    assert len(_groups([{'text':'palavra','start':i,'end':i+.2} for i in range(13)]))==4
     appfile=Path('/app/app.py')
     if not appfile.exists():
         raise SystemExit('Missing app.py')
