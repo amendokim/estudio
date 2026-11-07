@@ -163,6 +163,64 @@ def _subtitle_events(project):
     return '\n'.join(events)+'\n'
 
 
+
+import re
+
+# Use the official licensed-media search endpoint and its existing 24-hour cache.
+BAD_STOCK = re.compile(r'(?:mountain|alps|fjord|lake|glacier|ocean|sea-|beach|waterfall|snow|forest|island)', re.I)
+GOOD_STOCK = re.compile(r'(?:bridge|traffic|road|highway|truck|city|urban|street|crossing|vehicle|car-|construction|pedestrian)', re.I)
+
+def refine_pilot_visuals(studio, pid):
+    project = studio.get_project(pid)
+    if not _is_pilot(project) or 'ponte da amizade' not in (project.get('title') or '').lower():
+        return
+    scenes = project.get('scenes') or []
+    queries = ('bridge traffic', 'bridge', 'construction bridge', 'bridge architecture',
+               'bridge concrete', 'road traffic', 'bridge', 'road bridge',
+               'truck road', 'road construction', 'city street pedestrians', 'bridge road')
+    used = {s.get('media_url') for s in scenes
+            if s.get('media_url') and s.get('media_provider') in ('original', 'wikimedia')}
+    changed = 0
+    for idx, scene in enumerate(scenes):
+        provider = scene.get('media_provider') or ''
+        if provider in ('original', 'wikimedia', 'local'):
+            continue
+        chosen = None
+        qset = list(dict.fromkeys((queries[idx % len(queries)], 'bridge', 'traffic road')))
+        for query in qset:
+            try:
+                hits = studio.media_search('pixabay', 'video', query, 'landscape')
+            except Exception:
+                continue
+            for hit in hits:
+                page = (hit.get('page') or '').lower()
+                video_url = hit.get('url') or ''
+                if (hit.get('kind') != 'video' or not video_url
+                        or not studio._approved_url(video_url, 'pixabay')
+                        or video_url in used or BAD_STOCK.search(page)
+                        or not GOOD_STOCK.search(page)):
+                    continue
+                chosen = hit
+                break
+            if chosen:
+                break
+        if chosen:
+            with studio.db() as conn:
+                conn.execute('''UPDATE scenes SET media_url=?, media_kind='video',
+                        media_provider='pixabay', source_page=?, author=?, thumb=?, media_local=''
+                        WHERE id=? AND project_id=?''',
+                        (chosen['url'], chosen.get('page', ''),
+                         (chosen.get('author') or '')[:150] + ' | Pixabay | Imagens ilustrativas',
+                         chosen.get('thumb') or '', scene['id'], pid))
+            used.add(chosen['url'])
+            changed += 1
+        elif BAD_STOCK.search(scene.get('source_page') or ''):
+            with studio.db() as conn:
+                conn.execute('''UPDATE scenes SET media_url='', media_local='', media_kind='',
+                       media_provider='', source_page='', author='', thumb=''
+                       WHERE id=? AND project_id=?''', (scene['id'], pid))
+    print('[cinematic] Relevância visual: %d cena(s) aprimoradas' % changed, flush=True)
+
 def install(studio):
     original_autofill=studio._auto_find_media
     original_subtitles=studio.subtitles_for
@@ -186,6 +244,7 @@ def install(studio):
             print('[cinematic] schematic animated map assigned',flush=True)
         except Exception as exc:
             print('[cinematic] map unavailable:',str(exc)[:230],flush=True)
+        refine_pilot_visuals(studio, pid)
         return result
 
     def pilot_subtitles(project,out,width,height):
