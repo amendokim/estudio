@@ -2,6 +2,21 @@
 
 > **Projeto independente e pessoal**, construído do zero. Não contém código privado, identidade visual, marcas ou bases de dados de concorrentes. A página do produto de referência não pôde ser auditada por dentro. Portanto, não é uma cópia exata nem há garantia de equivalência de todas as funções.
 
+## Fábrica de documentários (fila persistente)
+
+Acesse `/fabrica` no mesmo domínio do estúdio, após fazer login. A interface consulta `/api/factory/status` e `/api/factory/jobs`, mostra a fila e pode solicitar **lotes de roteiros**. Os jobs ficam em SQLite no volume persistente e são retomados após uma reinicialização (uma tentativa adicional); uma thread executa **um job por vez**, adequada apenas a **uma réplica**.
+
+### Segurança, limitações e custos
+
+- Sem `GEMINI_API_KEY`, **nenhum roteiro pago é gerado**. É possível validar projetos existentes e ver a capacidade do servidor sem chamadas de IA. O escritor opcional usa `gemini-2.5-flash-lite`, e a cobrança de API é separada do ChatGPT Plus.
+- `STUDIO_FACTORY_DAILY_SCRIPT_LIMIT` (padrão **5**) limita o número de roteiros iniciados por dia UTC. Cada documentário é gerado por capítulos. A ferramenta não publica no YouTube e solicita revisão de fontes antes de publicar.
+- `STUDIO_FACTORY_MAX_RENDER_MINUTES` (padrão **5**) bloqueia renderização longa no Railway; `STUDIO_FACTORY_MIN_FREE_MB` (padrão **150**) define a reserva mínima de disco. A checagem também exige capacidade estimada para arquivos intermediários. **Não aumente o limite sem provisionar uma VPS e armazenamento externo suficientes**.
+- `STUDIO_FACTORY_WORKER_ENABLED=0` pausa o processamento dos jobs sem perder a fila (padrão 1).
+- O envio de temas pelo painel prepara **roteiros**, não dispara vídeos em lote. Uma chamada `POST /api/factory/jobs` para um projeto já escrito pode executar validação, renderização ou autopilot, desde que passe nos limites configurados.
+- A proteção HTTP Basic existente também protege `/fabrica` e os endpoints da fábrica. Não compartilhe senha, tokens OAuth ou chaves de API em GitHub.
+
+Para escalar a **150 a 300 vídeos de 30 minutos por mês**, ainda são necessários: armazenamento externo (ex.: bucket S3), renderização segmentada, filas com trabalhadores separados, mídia selecionada semanticamente e revisão editorial. A fila atual **não é promessa de produção nessa escala**, mas cria a base de controle e observabilidade sem comprar infraestrutura adicional.
+
 ## Funcionalidades incluídas
 
 - Painel web responsivo com projetos e progresso, persistidos em SQLite. Na hospedagem online, exige senha para acesso aos projetos e arquivos.
