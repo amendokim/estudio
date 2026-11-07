@@ -273,10 +273,14 @@ async function req(url,init){const response=await fetch(url,init);const data=awa
 function td(row,value){const cell=document.createElement('td');cell.textContent=String(value??'');row.appendChild(cell);return cell;}
 async function refresh(){try{const s=await req('/api/factory/status');document.getElementById('info').textContent=JSON.stringify(s,null,2);
 const projects=await req('/api/projects');const box=document.getElementById('projects');box.replaceChildren();
+const storage=await req('/api/factory/storage');
 for(const p of projects){const section=document.createElement('p');section.textContent=p.title+' — '+p.status+' — '+p.duration_minutes+' min ';
 const view=document.createElement('a');view.href='/?project='+encodeURIComponent(p.id);view.textContent='Abrir';section.append(view);
 const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
+if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
+if(storage.storage_configured){const arc=document.createElement('button');arc.textContent='Arquivar MP4';arc.onclick=async()=>{if(!confirm('Copiar este MP4 para o bucket? A operação pode gerar cobranças de armazenamento.'))return;try{const x=await req('/api/factory/archive/'+encodeURIComponent(p.id),{method:'POST'});alert(x.note||'Armazenado.');refresh()}catch(e){alert(e.message)}};section.append(' ',arc);
+const remote=document.createElement('a');remote.href='/api/factory/archive/'+encodeURIComponent(p.id)+'/download';remote.textContent='Baixar do bucket';section.append(' ',remote)}}
 if(p.status!=='concluído'){const button=document.createElement('button');button.textContent='Colocar na fila de produção';button.onclick=async()=>{
 try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));if(!plan.can_render_here){alert(plan.reason);return}
 if(!confirm('Iniciar a produção de '+p.title+'? Isso consome CPU, armazenamento e recursos da hospedagem.'))return;
