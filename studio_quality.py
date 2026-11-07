@@ -147,6 +147,8 @@ def project_qa(studio, pid: str):
         warnings.append('Roteiro/narração mais curto que a duração planejada; amplie o texto ou ajuste a duração declarada.')
     if actual and target and actual['duration_seconds'] < target * .9:
         warnings.append('MP4 final ficou significativamente mais curto que o objetivo.')
+    if actual and actual.get('width', 0) < 1280 and width > height:
+        warnings.append('Prévia em resolução inferior a 720p; exportar 1080p antes da publicação.')
     if actual and actual.get('width') and actual.get('height'):
         ratio = actual['width'] / actual['height']
         expected = width / height
@@ -209,6 +211,26 @@ def install(studio):
     @studio.app.get('/api/quality/projects/{pid}')
     def qa_route(pid: str):
         return project_qa(studio, pid)
+
+    @studio.app.on_event('startup')
+    def summarize_completed_pilots():
+        # Technical metrics only; never log scripts, credentials or source URLs.
+        try:
+            import json
+            with studio.db() as conn:
+                rows = conn.execute(
+                    "SELECT id FROM projects WHERE status='concluído' ORDER BY created_at DESC LIMIT 5"
+                ).fetchall()
+            for row in rows:
+                report = project_qa(studio, row['id'])
+                summary = {name: report[name] for name in
+                           ('project_id', 'target_seconds', 'scene_timeline_seconds',
+                            'file', 'source_mix_percent', 'mismatched_scene_numbers')}
+                print('[studio-quality-audit] ' +
+                      json.dumps(summary, ensure_ascii=False), flush=True)
+        except Exception as exc:
+            print('[studio-quality-audit] métricas indisponíveis: ' + str(exc)[:200], flush=True)
+
 
 
 if __name__ == '__main__':
