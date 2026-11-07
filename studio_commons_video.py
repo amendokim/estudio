@@ -72,6 +72,10 @@ def install(studio):
         project = studio.get_project(pid)
         # Apenas um trecho real na cena de 2015; demais cenas usam bancos de mídia.
         for scene in project["scenes"]:
+            # Automatic archive clips must never occupy more than 10 seconds
+            # of a scene; longer scenes use licensed stock instead.
+            if float(scene.get("duration") or 8) > 10.0:
+                continue
             query = scene.get("query", "").casefold()
             if not ("ponte da amizade" in query and "2015" in query):
                 continue
