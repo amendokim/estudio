@@ -24,6 +24,14 @@ COPY studio_youtube_policy.py /app/studio_youtube_policy.py
 RUN python -m py_compile /app/studio_youtube_policy.py && python /app/studio_youtube_policy.py
 COPY studio_edit_polish.py /app/studio_edit_polish.py
 RUN python -m py_compile /app/studio_edit_polish.py && python /app/studio_edit_polish.py
+COPY studio_channel_network.py /app/studio_channel_network.py
+RUN python -m py_compile /app/studio_channel_network.py && python /app/studio_channel_network.py
+COPY studio_channel_dashboard.py /app/studio_channel_dashboard.py
+RUN python -m py_compile /app/studio_channel_dashboard.py && python /app/studio_channel_dashboard.py
+COPY studio_channel_publish.py /app/studio_channel_publish.py
+RUN python -m py_compile /app/studio_channel_publish.py && python /app/studio_channel_publish.py
+COPY studio_channel_pipeline.py /app/studio_channel_pipeline.py
+RUN python -m py_compile /app/studio_channel_pipeline.py && python /app/studio_channel_pipeline.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
