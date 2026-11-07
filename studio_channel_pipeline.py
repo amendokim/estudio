@@ -114,8 +114,10 @@ def writer(studio,row):
            (row["topic"],row["angle"],row["hook"]))
     try:
         minutes=max(1,min(60,int(row.get("duration_minutes") or 5)))
+        channel=network.get_channel(studio,row["channel_id"])
         pid=studio_factory.generate_script(
-            studio,topic,minutes,"16:9",title=row["title"])
+            studio,topic,minutes,"16:9",title=row["title"],
+            language=channel["language"])
         project=studio.get_project(pid)
         capacity=studio_factory.estimate(studio,project)
         if capacity["can_render_here"]:
@@ -211,7 +213,7 @@ def loop(studio):
             maintenance(studio)
             if enabled():
                 with studio.db() as db:
-                    row=db.execute("""SELECT id,topic,angle,title,hook,duration_minutes FROM channel_network_ideas
+                    row=db.execute("""SELECT id,channel_id,topic,angle,title,hook,duration_minutes FROM channel_network_ideas
                                      WHERE status='queued_writing'
                                      ORDER BY created_at LIMIT 1""").fetchone()
                 if row:
