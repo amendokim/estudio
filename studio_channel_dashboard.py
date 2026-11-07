@@ -50,7 +50,7 @@ h3{font-size:17px;margin:6px 0}.error{color:#ffb8ae}
 <p class="muted">A análise estima visualizações por hora e engajamento dos vídeos publicados nas últimas 96 horas.
 Não existe uma lista completa de vídeos virais mundiais, por isso combinamos buscas e métricas.</p>
 <p class="muted">Títulos, propostas de roteiro e miniaturas são originais. Não copiamos thumbnails nem baixamos vídeos dos concorrentes.</p>
-<p class="muted">Conectar os canais e publicar no YouTube exige OAuth e configuração do Google Cloud. Salvar um horário aqui não faz upload.</p>
+<p class="muted">Conectar os canais e publicar no YouTube exige OAuth e configuração do Google Cloud. Os horários iniciais são apenas sugestões: ajuste e salve a quantidade de cada canal antes de ativar a agenda. Salvar um horário aqui não faz upload.</p>
 </div>
 </section>
 <section>
@@ -84,6 +84,24 @@ async function refresh(){
   card.append(el('h3',c.name));
   card.append(el('p',c.niche+' | '+c.language+' | '+c.timezone));
   card.append(el('p',c.daily_quantity+' vídeo(s) por dia, horários: '+c.hours.join(', ')));
+  const count=el('input');count.type='number';count.min='1';count.max='4';count.value=String(c.daily_quantity);
+  count.style.maxWidth='95px';
+  const times=el('input');times.value=c.hours.join(',');times.style.maxWidth='290px';
+  const timetable=el('div');timetable.className='row';
+  const howmany=el('label','Vídeos por dia (1 a 4)');howmany.append(count);
+  const whattime=el('label','Horários HH:MM (um para cada vídeo)');whattime.append(times);
+  timetable.append(howmany,whattime);card.append(timetable);
+  card.append(btn('Salvar horários',async()=>{
+   try{
+    const quantity=Number(count.value);
+    const hours=times.value.split(',').map(x=>x.trim()).filter(Boolean);
+    await request('/api/network/channels/'+c.id,{method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({daily_quantity:quantity,hours,timezone:c.timezone,enabled:c.enabled})});
+    message('Agenda atualizada. Não houve upload no YouTube.');
+    refresh();
+   }catch(e){message(e.message,true)}
+  },'secondary'));
   card.append(el('p','Identificador no YouTube: '+(c.yt_channel_id||'não conectado')));
   const conn=await request('/api/network/channels/'+c.id+'/connection');
   card.append(el('p','OAuth: '+(conn.connected ? 'conectado como '+conn.identity.yt_channel_name :
