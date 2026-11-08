@@ -157,6 +157,7 @@ def install(studio):
         except Exception as exc:
             studio.update_project(pid,status="erro",progress=0,error=str(exc)[:900])
             print("[elevenlabs] stopped safely: "+type(exc).__name__,flush=True)
+            raise
     studio.tts_task = optional_paid_voice
 
     @studio.app.get("/api/voice/quality/config")
