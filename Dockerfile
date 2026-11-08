@@ -46,6 +46,8 @@ COPY studio_visual_direction.py /app/studio_visual_direction.py
 RUN python -m py_compile /app/studio_visual_direction.py && python /app/studio_visual_direction.py
 COPY studio_editorial_preview.py /app/studio_editorial_preview.py
 RUN python -m py_compile /app/studio_editorial_preview.py && python /app/studio_editorial_preview.py
+COPY studio_semantic_media.py /app/studio_semantic_media.py
+RUN python -m py_compile /app/studio_semantic_media.py && python /app/studio_semantic_media.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
