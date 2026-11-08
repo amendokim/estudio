@@ -294,7 +294,7 @@ def scene_plan(scene,context,domain,index):
             valid.append(cleaned)
     specificity=(set(tokens(original))&set(tokens(speech)))
     return {"index":index,"domain":domain,
-            "scene_excerpt":str(scene.get("text") or "")[:140],
+            "scene_excerpt":str(scene.get("text") or "")[:310],
             "visual_intent":focused[1] if focused else "context",
             "queries":valid[:4],
             "must_tags":list(focused[3]) if focused else [],
@@ -378,7 +378,7 @@ def _signature(project,channel):
 
 def _gemini_enabled():
     return bool(os.getenv("GEMINI_API_KEY")) and os.getenv(
-        "STUDIO_SEMANTIC_GEMINI_ENABLED","0")=="1"
+        "STUDIO_SEMANTIC_GEMINI_ENABLED","1")=="1"
 
 def _ai_rewrite(studio,project,shotlist):
     if not _gemini_enabled():
@@ -386,7 +386,7 @@ def _ai_rewrite(studio,project,shotlist):
     with studio.db() as db:
         db.execute("BEGIN IMMEDIATE")
         if _max_calls(studio)>=min(20,max(1,int(os.getenv(
-                 "STUDIO_SEMANTIC_GEMINI_MAX_DAILY","6")))):
+                 "STUDIO_SEMANTIC_GEMINI_MAX_DAILY","3")))):
             return shotlist,"rules_daily_cap"
         cursor=db.execute("""INSERT OR IGNORE INTO studio_semantic_audit
           (project_id,created_at,mode,state) VALUES(?,?,?,?)""",
@@ -396,7 +396,7 @@ def _ai_rewrite(studio,project,shotlist):
     import studio_factory
     context=shotlist["channel"]
     slices=shotlist["scenes"][:30]
-    content=[{"index":e["index"],"text":e["scene_excerpt"][:125],
+    content=[{"index":e["index"],"text":e["scene_excerpt"][:275],
               "writer_visual_query":str((project.get("scenes") or [])[e["index"]-1].get("query") or "")[:75]}
              for e in slices]
     prompt=(
@@ -682,7 +682,26 @@ def run_tests():
     psychology=storyboard(samples[0][0],{"name":"Fudoshin","niche":"estoicismo","language":"es"})
     assert _relevant_candidate(psychology["scenes"][0],"road bridge river")<MIN_SCORE
     assert _relevant_candidate(psychology["scenes"][0],"office business people discussion")>=MIN_SCORE
-    print("[semantic-media] SELF-TEST PASS 8 niches, script alignment and cross-topic rejection",flush=True)
+    # Channel niche must not override the concrete topic in the actual title.
+    cross=storyboard(samples[2][0],{"name":"Channel A","niche":"estoicismo",
+                                    "language":"en"})
+    assert cross["domain"]=="science_space"
+    unknown=storyboard({"id":"x","title":"How glass bottles are made",
+          "topic":"industrial manufacturing",
+          "scenes":[{"text":"Workers heat the glass inside a huge furnace.",
+                     "query":"glass factory furnace"}]},
+          {"name":"Channel B","niche":"education","language":"en"})
+    assert unknown["domain"]=="general"
+    assert "glass factory furnace" in unknown["scenes"][0]["queries"]
+    assert _relevant_candidate(unknown["scenes"][0],"bridge traffic river")<MIN_SCORE
+    assert _relevant_candidate(unknown["scenes"][0],"glass factory furnace industrial")>=MIN_SCORE
+    for domain in ("infrastructure","history","economy","technology","food"):
+        simulated={"domain":domain,"reject_tags":THEMES[domain]["incompatible"],
+                   "scene_excerpt":"unrelated introduction",
+                   "queries":list(THEMES[domain]["default"]),"must_tags":[]}
+        for rejected in THEMES[domain]["incompatible"][:1]:
+            assert _relevant_candidate(simulated,"random "+rejected+" footage")<MIN_SCORE
+    print("[semantic-media] SELF-TEST PASS 8 niches plus unknown-topic, channel override, candidate ranking and cross-topic rejection",flush=True)
 
 def install(studio):
     schema(studio)
@@ -719,7 +738,7 @@ def install(studio):
                 "semantic_filter":True,
                 "gemini_enabled":_gemini_enabled(),
                 "gemini_daily_cap":min(20,max(1,int(os.getenv(
-                    "STUDIO_SEMANTIC_GEMINI_MAX_DAILY","6")))),
+                    "STUDIO_SEMANTIC_GEMINI_MAX_DAILY","3")))),
                 "max_stock_queries_per_project":SEARCH_LIMIT,
                 "licensing_policy":"Pixabay autorizado ou gráfico original; sem scraping do YouTube"}
 
