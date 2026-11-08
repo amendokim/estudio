@@ -37,7 +37,7 @@ AUDIO_MIX_FILTER = (
 def clip_key(scene: dict, width: int, height: int) -> str:
     material = {name: scene.get(name) for name in (
         "id", "media_url", "media_local", "media_kind", "media_provider", "duration", "text")}
-    material.update(width=width, height=height, version="longform-v1")
+    material.update(width=width, height=height, version="longform-v2-dynamic-editor")
     return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -143,6 +143,14 @@ def render(studio: Any, pid: str):
         intermediates.mkdir(parents=True, exist_ok=True)
         completed: list[Path] = []
         credits: list[str] = []
+        cinematic = os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT", "1") == "1"
+        montage = None
+        if cinematic:
+            import studio_dynamic_montage as dynamic
+            montage = dynamic.build_plan(studio, p)
+            (out / "montage_plan_v2.json").write_text(
+                json.dumps(montage,indent=2,ensure_ascii=False),encoding="utf-8")
+            print(f"[longform-editor] planned {sum(len(x['shots']) for x in montage['timeline'])} distinct-paced cuts across {len(scenes)} scenes; searches={montage['source_searches']}",flush=True)
         preset = os.getenv("STUDIO_LONGFORM_PRESET", "veryfast")
         if preset not in ("ultrafast", "superfast", "veryfast", "faster", "fast"):
             preset = "veryfast"
@@ -152,24 +160,33 @@ def render(studio: Any, pid: str):
             clip = intermediates / f"scene_{index:03d}.mp4"
             checkpoint = intermediates / f"scene_{index:03d}.sha256"
             digest = clip_key(scene, width, height)
+            if montage:
+                digest = hashlib.sha256((digest + json.dumps(
+                    montage["timeline"][index],sort_keys=True,ensure_ascii=False)).encode()).hexdigest()
             valid = (checkpoint.is_file() and checkpoint.read_text().strip() == digest
                      and _duration(studio, clip) >= duration - 0.4)
             if not valid:
                 checkpoint.unlink(missing_ok=True)
-                media = studio.fetch_clip(scene, pid)
-                if media is None:
-                    raise RuntimeError(f"Cena {index + 1}: mídia indisponível. "
-                                       "A montagem longa exige fontes visuais selecionadas.")
-                input_args = (["-stream_loop", "-1", "-i", str(media)] if
-                              scene["media_kind"] == "video" else
-                              ["-loop", "1", "-framerate", "24", "-i", str(media)])
-                filt = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-                        f"crop={width}:{height},setsar=1,fps=24,format=yuv420p")
-                _atomic_encode(studio, [*input_args, "-t", f"{duration:.3f}",
-                                        "-vf", filt, "-an", "-c:v", "libx264",
-                                        "-preset", preset, "-crf", "26", "-pix_fmt", "yuv420p",
-                                        "-r", "24"], clip,
-                               timeout=max(300, duration * 20))
+                if montage:
+                    sources = dynamic.make_scene(studio,pid,p,index,
+                        montage["timeline"][index],intermediates,clip,preset)
+                    credits.extend(
+                        f"Cena {x['scene']} / corte {x['shot']} | {x['provider']} | "
+                        f"{x['author']} | {x['url']}" for x in sources)
+                else:
+                    media = studio.fetch_clip(scene, pid)
+                    if media is None:
+                        raise RuntimeError(f"Cena {index + 1}: mídia indisponível")
+                    input_args = (["-stream_loop", "-1", "-i", str(media)] if
+                                  scene["media_kind"] == "video" else
+                                  ["-loop", "1", "-framerate", "24", "-i", str(media)])
+                    filt = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                            f"crop={width}:{height},setsar=1,fps=24,format=yuv420p")
+                    _atomic_encode(studio, [*input_args, "-t", f"{duration:.3f}",
+                                            "-vf", filt, "-an", "-c:v", "libx264",
+                                            "-preset", preset, "-crf", "26", "-pix_fmt", "yuv420p",
+                                            "-r", "24"], clip,
+                                   timeout=max(300, duration * 20))
                 checkpoint.write_text(digest)
             completed.append(clip)
             if scene.get("source_page"):
