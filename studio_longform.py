@@ -22,6 +22,17 @@ from fastapi import HTTPException
 MIN_LONG_MINUTES = 6
 MIN_VIDEO_RATIO = 0.8
 
+AUDIO_MIX_FILTER = (
+    "[1:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+    "volume=1,asplit=2[voice_side][voice_mix];"
+    "[2:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+    "volume=0.17[bed];"
+    "[bed][voice_side]sidechaincompress=threshold=0.025:"
+    "ratio=6:attack=35:release=650[duck];"
+    "[voice_mix][duck]amix=inputs=2:duration=first:"
+    "dropout_transition=0:normalize=0[aout]"
+)
+
 
 def clip_key(scene: dict, width: int, height: int) -> str:
     material = {name: scene.get(name) for name in (
@@ -181,15 +192,7 @@ def render(studio: Any, pid: str):
             # Voice-first mix: soft background bed automatically ducks under
             # spoken narration and recovers gently through natural pauses.
             # FFmpeg-only; no paid mixing services or outside music API.
-            args += ["-filter_complex",
-                     "[1:a]aformat=sample_rates=48000:channel_layouts=stereo,"
-                     "volume=1[voice];"
-                     "[2:a]aformat=sample_rates=48000:channel_layouts=stereo,"
-                     "volume=0.17[bed];"
-                     "[bed][voice]sidechaincompress=threshold=0.025:"
-                     "ratio=6:attack=35:release=650[duck];"
-                     "[voice][duck]amix=inputs=2:duration=first:"
-                     "dropout_transition=0:normalize=0[aout]",
+            args += ["-filter_complex", AUDIO_MIX_FILTER,
                      "-map", "0:v:0","-map","[aout]"]
         else:
             args += ["-map", "0:v:0", "-map", "1:a:0"]
@@ -379,7 +382,26 @@ const parts=document.createElement('button');parts.textContent='Ver capítulos';
         return describe(studio, pid)
 
 
+def _self_test_audio_mix():
+    """Validate the precise FFmpeg audio graph during the Railway Docker build."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg missing during audio-mix self-test")
+    cp = subprocess.run([
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-f", "lavfi", "-i", "color=c=black:s=16x16:d=0.3",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=0.3",
+        "-f", "lavfi", "-i", "sine=frequency=220:duration=0.3",
+        "-filter_complex", AUDIO_MIX_FILTER, "-map", "[aout]",
+        "-t", "0.25", "-f", "null", "-"
+    ], capture_output=True, text=True, check=False, timeout=15)
+    if cp.returncode:
+        raise RuntimeError("FFmpeg audio mix self-test failed: " + cp.stderr[-800:])
+    print("[longform] AUDIO MIX SELF-TEST PASS voice/duck stereo split", flush=True)
+
+
 if __name__ == "__main__":
+    _self_test_audio_mix()
     target = Path("/app/app.py")
     if not target.is_file():
         raise SystemExit("/app/app.py missing")
