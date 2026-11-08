@@ -43,4 +43,6 @@ RUN python -m py_compile /app/studio_five_min_pilot.py && python /app/studio_fiv
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
-CMD ["sh", "-c", "python /app/cleanup_old_projects_once.py && python /app/cleanup_rendered_tests_once.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+COPY cleanup_all_old_projects_keep_five_min.py /app/cleanup_all_old_projects_keep_five_min.py
+RUN python -m py_compile /app/cleanup_all_old_projects_keep_five_min.py
+CMD ["sh", "-c", "python /app/cleanup_old_projects_once.py && python /app/cleanup_rendered_tests_once.py && python /app/cleanup_all_old_projects_keep_five_min.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
