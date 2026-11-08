@@ -64,6 +64,8 @@ COPY studio_music_director.py /app/studio_music_director.py
 RUN python -m py_compile /app/studio_music_director.py && python /app/studio_music_director.py
 COPY studio_music_chapters.py /app/studio_music_chapters.py
 RUN python -m py_compile /app/studio_music_chapters.py && python /app/studio_music_chapters.py
+COPY studio_fudoshin_30min_pilot.py /app/studio_fudoshin_30min_pilot.py
+RUN python -m py_compile /app/studio_fudoshin_30min_pilot.py && python /app/studio_fudoshin_30min_pilot.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
