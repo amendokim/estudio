@@ -55,6 +55,10 @@ Não existe uma lista completa de vídeos virais mundiais, por isso combinamos b
 </section>
 <section>
 <div class="pane"><div class="row"><h2>Canais cadastrados</h2><button class="secondary" id="reload">Atualizar</button></div><div id="channels"></div></div>
+<div class="pane"><div class="row"><h2>Teste da API do YouTube</h2>
+<button class="secondary" id="recheckApi">Testar novamente</button></div>
+<p class="muted">Pesquisa real dos últimos quatro dias. Uma consulta usa a quota gratuita da API; não gera vídeos nem publica.</p>
+<div id="apiVerification">Verificando…</div></div>
 <div class="pane"><h2>Pesquisar e criar proposta</h2>
 <label>Canal<select id="activeChannel"></select></label>
 <label>Assunto do novo vídeo<input id="topic" placeholder="Ponte da Amizade e a fronteira Brasil–Paraguai"></label>
@@ -74,6 +78,25 @@ if(!response.ok)throw Error(data.detail||JSON.stringify(data));return data}
 function message(t,error=false){$('notice').textContent=t;$('notice').className=error?'error':'sub'}
 function el(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n}
 function btn(txt,fn,kind){const b=el('button',txt);if(kind)b.className=kind;b.onclick=fn;return b}
+async function showApiTest(){
+ try{
+  const data=await request('/api/network/live-test');
+  const e=$('apiVerification');e.replaceChildren();
+  if(!data.configured){e.append(el('p','Falta configurar YOUTUBE_DATA_API_KEY no Railway.'));return}
+  const t=data.latest;
+  if(!t){e.append(el('p','Chave detectada. Teste de pesquisa ainda não executado.'));return}
+  const msg=t.status==='ok' ? ('API validada: '+t.result_count+
+    ' vídeos recentes com métricas.') :
+    t.status==='failed' ? ('Falha: '+t.error) :
+    'Teste em andamento.';
+  e.append(el('p',msg));
+  if(t.best_video_url){
+   const a=el('a',t.best_video_title||'Vídeo de referência');a.href=t.best_video_url;
+   a.rel='noopener noreferrer';a.target='_blank';e.append(a);
+  }
+  if(t.idea_id)e.append(el('p','Uma nova proposta original e thumbnail foram criadas no canal piloto.'));
+ }catch(err){message(err.message,true)}
+}
 async function refresh(){
  try{const [state,items]=await Promise.all([request('/api/network/status'),request('/api/network/channels')]);
  $('status').textContent='Pesquisa '+(state.research_ready?'disponível':'aguardando API')+' • '+items.channels.length+' canais';
@@ -211,9 +234,17 @@ $('research').onclick=async()=>{
  message('Pesquisa concluída. Ideia e thumbnail originais registradas.');showIdeas(id)
  }catch(e){message(e.message,true)}finally{b.disabled=false}
 };
-$('reload').onclick=refresh;
+$('reload').onclick=()=>{refresh();showApiTest()};
+$('recheckApi').onclick=async()=>{
+ const b=$('recheckApi');b.disabled=true;message('Testando a pesquisa de 96 horas...');
+ try{const check=await request('/api/network/live-test',{method:'POST'});
+  message(check.latest?.status==='ok'?'Chave do Google validada.':'Não foi possível validar: '+(check.latest?.error||'erro desconhecido'),
+          check.latest?.status!=='ok');
+  showApiTest();refresh();
+ }catch(err){message(err.message,true)}finally{b.disabled=false}
+};
 $('activeChannel').onchange=()=>showIdeas($('activeChannel').value);
-refresh();
+refresh();showApiTest();
 </script></body></html>'''
 
 def install(studio):
