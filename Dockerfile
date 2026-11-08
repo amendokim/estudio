@@ -44,6 +44,8 @@ COPY studio_render_quota_guard.py /app/studio_render_quota_guard.py
 RUN python -m py_compile /app/studio_render_quota_guard.py && python /app/studio_render_quota_guard.py
 COPY studio_visual_direction.py /app/studio_visual_direction.py
 RUN python -m py_compile /app/studio_visual_direction.py && python /app/studio_visual_direction.py
+COPY studio_editorial_preview.py /app/studio_editorial_preview.py
+RUN python -m py_compile /app/studio_editorial_preview.py && python /app/studio_editorial_preview.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
