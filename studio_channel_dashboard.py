@@ -30,7 +30,8 @@ h3{font-size:17px;margin:6px 0}.error{color:#ffb8ae}
 @media(max-width:810px){.layout{grid-template-columns:1fr}main{padding:16px}}
 </style></head><body><main>
 <div class="row"><div><a href="/fabrica">← Fábrica de documentários</a>
-<h1>Rede de Canais IA</h1><div class="sub">Tendências internacionais • últimos 4 dias • edição e planejamento por canal</div></div>
+<h1>Rede de Canais IA</h1><div class="sub">Tendências internacionais • últimos 4 dias • edição e planejamento por canal</div>
+<p><a href="/controle" style="background:#46b9db;color:#09202b;text-decoration:none;padding:10px 16px;border-radius:9px;font-weight:700;display:inline-block">▶ Central de Automação — horários por canal</a></p></div>
 <span class="badge" id="status">Verificando integração</span></div>
 <div id="notice"></div>
 <div class="layout">
