@@ -305,7 +305,7 @@ DASHBOARD = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8">
 <textarea id="topics" rows="5" placeholder="História da Ponte da Amizade\nO surgimento das grandes cidades"></textarea>
 <label>Minutos por documentário <input type="number" id="minutes" min="1" max="60" value="30"></label>
 <button id="write">Gerar roteiros do lote</button></div>
-<div class="panel"><h2>Projetos existentes</h2><p><small>Meta de 30% de materiais originários do YouTube, no máximo 10 segundos por trecho. Seleção e substituição automáticas: fontes com direitos não verificáveis são descartadas sem interromper a produção.</small></p><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
+<div class="panel"><h2>Projetos existentes</h2><p><small>Arquivos de origem YouTube somente quando relevantes e com licença comprovada — sem meta percentual. Bancos de vídeo e gráficos originais são priorizados quando melhores para o roteiro.</small></p><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
 <div class="panel"><h2>Fila de produção</h2><button id="refresh">Atualizar</button><div id="jobs"></div></div>
 <script>
 async function req(url,init){const response=await fetch(url,init);const data=await response.json();if(!response.ok)throw Error(data.detail||JSON.stringify(data));return data;}
@@ -319,6 +319,10 @@ const view=document.createElement('a');view.href='/?project='+encodeURIComponent
 const visual=document.createElement('a');visual.href='/api/editorial/semantic/projects/'+encodeURIComponent(p.id);
 visual.textContent='Plano visual por cena';visual.target='_blank';visual.rel='noopener noreferrer';
 section.append(' · ',visual);
+const direction=document.createElement('a');
+direction.href='/api/editorial/strategy/projects/'+encodeURIComponent(p.id);
+direction.textContent='Origem de mídia e ritmo';direction.target='_blank';
+direction.rel='noopener noreferrer';section.append(' · ',direction);
 const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Fontes do YouTube';archival.onclick=async()=>{try{const data=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));alert('Meta de arquivos originários do YouTube: '+data.target_percent+'%\nParticipação verificada: '+data.actual_percent+'%\nFaltam: '+data.missing_seconds+' segundos.\n\nO uso automático inclui apenas licenças verificadas e autorizações documentadas. Revisão necessária para crítica/análise.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
 const autoPolicy=document.createElement('button');autoPolicy.textContent='Regra automática: 10 s';
 autoPolicy.onclick=async()=>{try{
