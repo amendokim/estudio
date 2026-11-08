@@ -144,8 +144,9 @@ def install(studio):
 
     @studio.app.on_event("startup")
     def startup():
-        # Do not create a second project when storage is already too low.
-        if free(studio)<START_MB:return
+        # New previews need 150 MB. Retrying a previously downloaded
+        # preview only needs 115 MB; preserve the old MP4 in both cases.
+        if free(studio)<RETRY_MB:return
         try:
             parent=studio.get_project(ORIGINAL)
             if parent.get("status")!="concluído":return
@@ -158,6 +159,10 @@ def install(studio):
                        (RUN_ID,ORIGINAL,"preparing",
                         datetime.now(timezone.utc).isoformat()))
             if cur.rowcount==1:
+                if free(studio)<START_MB:
+                    # Do not retain a 'preparing' marker for a run that never began.
+                    db.execute("DELETE FROM studio_editorial_previews WHERE id=?",(RUN_ID,))
+                    return
                 threading.Thread(target=job,args=(studio,),name="editorial-preview-v1",
                                  daemon=True).start()
                 return
