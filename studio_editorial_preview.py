@@ -17,6 +17,7 @@ ORIGINAL="8c855a6d-c95a-4642-bf9c-a46074404935"
 RUN_ID="codigo-fudoshin-visual-broll-preview-v1"
 RESERVE_MB=85
 START_MB=150
+RETRY_MB=115
 _LOCAL=threading.local()
 
 def free(studio):
@@ -89,6 +90,36 @@ def job(studio):
     finally:
         _LOCAL.active=False
 
+def retry_preview(studio,pid):
+    # Retry the SAME created project after the static cards have been replaced
+    # by their original animated-video versions. Never regenerate text or pay
+    # for Gemini. Reuse prior safely downloaded stock clips where possible.
+    try:
+        _ensure_disk(studio,RETRY_MB)
+        project=studio.get_project(pid)
+        if project.get("status") not in ("erro","roteiro pronto","narração pronta"):
+            raise RuntimeError("Prévia não está em estado seguro para retomar")
+        _LOCAL.active=True
+        print("[editorial-preview] RETRY original project="+pid[:8]+
+              " free=%.1fMB; animated cards are videos" % free(studio),flush=True)
+        studio.autopilot_task(pid)
+        final=studio.get_project(pid)
+        if final.get("status")!="concluído":
+            raise RuntimeError("Render não concluiu: "+
+                               str(final.get("error") or final.get("status")))
+        with studio.db() as db:
+            db.execute("UPDATE studio_editorial_previews SET status='completed',error='' WHERE id=?",
+                       (RUN_ID,))
+        print("[editorial-preview] RETRY DONE free=%.1fMB" % free(studio),flush=True)
+    except Exception as exc:
+        with studio.db() as db:
+            db.execute("UPDATE studio_editorial_previews SET status='failed',error=? WHERE id=?",
+                       (type(exc).__name__+": "+str(exc)[:300],RUN_ID))
+        print("[editorial-preview] RETRY FAILED "+type(exc).__name__+
+              " free=%.1fMB" % free(studio),flush=True)
+    finally:
+        _LOCAL.active=False
+
 def install(studio):
     schema(studio)
     old_ffmpeg=studio.run_ffmpeg
@@ -126,9 +157,27 @@ def install(studio):
                        VALUES(?,?,?,?)""",
                        (RUN_ID,ORIGINAL,"preparing",
                         datetime.now(timezone.utc).isoformat()))
-            if cur.rowcount!=1:return
-        threading.Thread(target=job,args=(studio,),name="editorial-preview-v1",
-                         daemon=True).start()
+            if cur.rowcount==1:
+                threading.Thread(target=job,args=(studio,),name="editorial-preview-v1",
+                                 daemon=True).start()
+                return
+            item=db.execute("SELECT status,project_id,error FROM studio_editorial_previews WHERE id=?",
+                            (RUN_ID,)).fetchone()
+            if not item or item["status"]!="failed" or not item["project_id"]:
+                return
+            # One explicitly scoped retry only, for the 80%-video issue;
+            # no retry loops for API, storage or unrelated failures.
+            try:
+                previous=studio.get_project(item["project_id"])
+            except Exception:
+                return
+            if "pelo menos 80%" not in str(previous.get("error") or ""):
+                return
+            if free(studio)<RETRY_MB:return
+            db.execute("UPDATE studio_editorial_previews SET status='retrying' WHERE id=?",
+                       (RUN_ID,))
+            threading.Thread(target=retry_preview,args=(studio,item["project_id"]),
+                             name="editorial-preview-fix-v2",daemon=True).start()
 
 if __name__=="__main__":
     assert RESERVE_MB>50 and START_MB>RESERVE_MB
