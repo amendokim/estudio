@@ -165,6 +165,17 @@ def maintenance(studio):
                             ORDER BY created_at LIMIT 10""").fetchall()
     for row in waiting:
         try:
+            # A paused Control Room channel must not automatically start a
+            # previously queued render just because storage was upgraded.
+            with studio.db() as db:
+                has_control=db.execute("""SELECT name FROM sqlite_master
+                   WHERE type='table' AND name='studio_channel_control'""").fetchone()
+                control=(db.execute("""SELECT ctl.mode FROM studio_channel_control ctl
+                    JOIN channel_network_ideas i ON i.channel_id=ctl.channel_id
+                    WHERE i.id=?""",(row["id"],)).fetchone()
+                    if has_control else None)
+            if control and control["mode"]!="running":
+                continue
             project=studio.get_project(row["project_id"])
             if studio_factory.estimate(studio,project)["can_render_here"]:
                 studio_factory.queue(studio,"autopilot",project_id=project["id"],title=row["title"],
