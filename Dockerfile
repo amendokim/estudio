@@ -34,6 +34,8 @@ COPY studio_channel_pipeline.py /app/studio_channel_pipeline.py
 RUN python -m py_compile /app/studio_channel_pipeline.py && python /app/studio_channel_pipeline.py
 COPY studio_channel_bootstrap.py /app/studio_channel_bootstrap.py
 RUN python -m py_compile /app/studio_channel_bootstrap.py && python /app/studio_channel_bootstrap.py
+COPY studio_channel_api_probe.py /app/studio_channel_api_probe.py
+RUN python -m py_compile /app/studio_channel_api_probe.py && python /app/studio_channel_api_probe.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
