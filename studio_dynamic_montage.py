@@ -220,6 +220,10 @@ def make_scene(studio,pid,project,index,entry,out,final,preset="veryfast"):
         duration=shot["seconds"]
         local_scene=dict(project["scenes"][index])
         local_scene.update(asset)
+        # A stable media-specific cache key prevents fetch_clip from returning
+        # a different asset previously cached under the narrative scene ID.
+        local_scene["id"] = str(project["scenes"][index]["id"]) + "-" + hashlib.sha256(
+            identity(asset).encode()).hexdigest()[:12]
         local=studio.fetch_clip(local_scene,pid)
         if not local:
             raise RuntimeError(f"Cena {index+1}, tomada {j+1}: mídia indisponível")
@@ -284,7 +288,34 @@ def self_test():
     seq=choose_sequence(a,12,{})
     assert all(identity(a)!=identity(b) for a,b in zip(seq,seq[1:]))
     assert len({identity(x) for x in seq})==3
-    print("[dynamic-montage] SELF-TEST PASS varied shot pacing and no adjacent repeats",flush=True)
+    # Real FFmpeg integration smoke check: four distinct one-second shot clips
+    # must concatenate into one smooth four-second scene without missing frames.
+    import tempfile
+    from types import SimpleNamespace
+    with tempfile.TemporaryDirectory(prefix="studio-montage-test-") as td:
+        root=Path(td)
+        if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+            originals=[]
+            for i,color in enumerate(("red","blue","green")):
+                path=root / f"source_{i}.mp4"
+                cp=subprocess.run(["ffmpeg","-hide_banner","-loglevel","error",
+                    "-y","-f","lavfi","-i",f"color=c={color}:s=320x180:d=2",
+                    "-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p",
+                    str(path)],capture_output=True,text=True,timeout=30)
+                assert cp.returncode==0,cp.stderr[-300:]
+                originals.append(path)
+            media=[{"media_local":str(x),"media_kind":"video",
+                    "media_provider":"original"} for x in originals]
+            seq=choose_sequence(media,4,{})
+            e={"seconds":4.0,"shots":[{"asset":a,"seconds":1.0} for a in seq]}
+            scene={"id":"smoke","text":"Documentary example","duration":4.0}
+            project={"id":"test","ratio":"16:9","scenes":[scene]}
+            mock=SimpleNamespace(DATA=root,FFMPEG="ffmpeg",FFPROBE="ffprobe",
+                    fetch_clip=lambda item,pid:item["media_local"])
+            dest=root/"edited.mp4"
+            make_scene(mock,"test",project,0,e,root,dest,preset="ultrafast")
+            assert abs(_dur(mock,dest)-4.0)<.3
+    print("[dynamic-montage] SELF-TEST PASS varied pacing and FFmpeg cut/concat",flush=True)
 
 
 if __name__=="__main__":
