@@ -469,6 +469,38 @@ def load_plan(studio,project,allow_ai=False,write=False):
                  datetime.now(timezone.utc).isoformat()))
     return result,source
 
+def animated_fallback(studio,project,pid,index,shot):
+    """Make an original scene-specific card count as moving visual coverage.
+
+    Reuses an existing animation, targets 540p and never claims to show
+    historical eyewitness footage. Protects disk on the small preview worker.
+    """
+    import shutil
+    import subprocess
+    still=fallback_graphic(studio,project,pid,index,shot)
+    dest=still.with_suffix(".mp4")
+    if dest.is_file() and dest.stat().st_size>4000:
+        return dest
+    # If the worker has little disk, fail closed; don't grow temporary files.
+    if shutil.disk_usage(studio.DATA).free < 105*1024*1024:
+        raise RuntimeError("Insufficient disk space for original moving card")
+    temp=dest.with_name(dest.stem+".part.mp4")
+    # The rendering pipeline may loop this 9-second clip to scene duration.
+    args=[studio.FFMPEG,"-hide_banner","-loglevel","error","-nostdin","-y",
+          "-loop","1","-framerate","24","-i",str(still),"-t","12",
+          "-vf","zoompan=z='min(zoom+0.00035,1.08)':x='iw/2-(iw/zoom/2)':"
+                 "y='ih/2-(ih/zoom/2)':d=1:s=960x540:fps=24,format=yuv420p",
+          "-an","-c:v","libx264","-preset","ultrafast","-crf","33",
+          "-pix_fmt","yuv420p","-movflags","+faststart",str(temp)]
+    try:
+        complete=subprocess.run(args,timeout=90,capture_output=True,check=False)
+        if complete.returncode or not temp.is_file() or temp.stat().st_size<4000:
+            raise RuntimeError("Original card motion rendering failed")
+        temp.replace(dest)
+        return dest
+    finally:
+        temp.unlink(missing_ok=True)
+
 def pick_media(studio,scene,shot,client,key,cache,used):
     checks=0
     for query in shot["queries"][:3]:
@@ -556,8 +588,12 @@ def select_for_project(studio,pid,limit):
             # Verify existing archival/local authorized media separately; never
             # overwrite a verified asset merely to reach a stock percentage.
             if scene.get("media_provider") in ("authorized_youtube","wikimedia"):
-                retained+=1
-                continue
+                # Permission alone is not relevance: a known bridge archive
+                # must not survive on a space or psychology story.
+                archive_description=(scene.get("author") or "")+" "+(scene.get("source_page") or "")
+                if not _semantic_conflict(archive_description,plan["domain"],scene.get("text") or ""):
+                    retained+=1
+                    continue
             # Existing Pixabay clips are not automatically relevant:
             # original selectors may have used a stale fallback.
             source_tags=scene.get("author") or ""
@@ -583,13 +619,17 @@ def select_for_project(studio,pid,limit):
                     audit=("pixabay",chosen["score"],chosen["query"],"matched")
                 else:
                     shot["channel_name"]=plan["channel"].get("name") or "ESTÚDIO IA"
-                    art=fallback_graphic(studio,project,pid,idx,shot)
+                    try:
+                        art=animated_fallback(studio,project,pid,idx,shot)
+                    except (OSError,ValueError,RuntimeError):
+                        art=fallback_graphic(studio,project,pid,idx,shot)
                     relative=str(art.relative_to(studio.MEDIA))
+                    media_kind="video" if art.suffix==".mp4" else "image"
                     db.execute("""UPDATE scenes SET media_url='',media_local=?,
-                        media_kind='image',media_provider='original',
+                        media_kind=?,media_provider='original',
                         source_page='',author='Composição original ilustrativa',
                         thumb='' WHERE id=? AND project_id=?""",
-                        (relative,scene["id"],pid))
+                        (relative,media_kind,scene["id"],pid))
                     graphics+=1
                     audit=("original",-1,"","no_relevant_licensed_clip")
                 db.execute("""INSERT OR REPLACE INTO studio_semantic_asset_audit
