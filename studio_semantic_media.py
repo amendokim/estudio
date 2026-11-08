@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 import httpx
 
 VERSION = "universal-storyboard-v1"
-SEARCH_LIMIT = 24
+SEARCH_LIMIT = 48
 SCENE_LIMIT = 120
 MIN_SCORE = 5
 MAX_VIDEO_BYTES = 8 * 1024 * 1024
@@ -571,18 +571,25 @@ def fallback_graphic(studio,project,pid,idx,shot):
     image.save(dest,optimize=True)
     return dest
 
+def scene_selection_count(project,requested,total):
+    """Long-form footage searches must cover all scenes, not just the initial batch."""
+    if int(project.get("duration_minutes") or 0) >= 6:
+        return min(total,SCENE_LIMIT)
+    return min(total,SCENE_LIMIT,max(requested,24))
+
 def select_for_project(studio,pid,limit):
     project=studio.get_project(pid)
     if project.get("status")=="concluído":
         return {"status":"preserved_completed"}
     plan,source=load_plan(studio,project,allow_ai=True,write=True)
     scenes=project.get("scenes") or []
+    count=scene_selection_count(project,limit,len(scenes))
     selected=0;retained=0;graphics=0;rejected=0
     used={s.get("media_url") for s in scenes if s.get("media_url")}
     cache={}
     key=os.getenv("PIXABAY_API_KEY")
     with httpx.Client(timeout=15,follow_redirects=False) as client:
-        for idx,scene in enumerate(scenes[:min(max(limit,24),SCENE_LIMIT)]):
+        for idx,scene in enumerate(scenes[:count]):
             shot=plan["scenes"][idx]
             previous=scene.get("media_url") or ""
             # Verify existing archival/local authorized media separately; never
@@ -637,7 +644,7 @@ def select_for_project(studio,pid,limit):
                       VALUES(?,?,?,?,?,?)""",
                       (pid,idx+1,*audit))
                 if previous and not chosen:rejected+=1
-    result={"project_id":pid,"scenes_evaluated":min(max(limit,24),len(scenes)),
+    result={"project_id":pid,"scenes_evaluated":count,
             "matched_broll":selected,"retained_relevant":retained,
             "original_graphics":graphics,"rejected_stale":rejected,
             "stock_requests":len(cache),"storyboard_source":source}
@@ -645,6 +652,9 @@ def select_for_project(studio,pid,limit):
     return result
 
 def run_tests():
+    assert scene_selection_count({"duration_minutes":30},24,44)==44
+    assert scene_selection_count({"duration_minutes":5},16,44)==24
+    assert scene_selection_count({"duration_minutes":30},16,140)==120
     samples=[
       ({"title":"Poner límites con calma","topic":"serenidad y autocontrol",
         "scenes":[{"text":"Cuando tu jefe alza la voz en una reunión, respira y responde con respeto.",
