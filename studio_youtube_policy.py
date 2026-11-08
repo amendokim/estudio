@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-TARGET_DEFAULT = 30
+TARGET_DEFAULT = 0
 MAX_YOUTUBE_CLIP_SECONDS = 10
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 HISTORIC_BRIDGE = "File:Ponte da Amizade completa 50 anos.webm"
@@ -263,12 +263,12 @@ def report(project):
             "missing_seconds": round(max(0, total * target / 100 - selected), 1),
             "target_met": bool(total and selected >= total * target / 100),
             "priorities": PRIORITIES,
-            "note": "Meta de 30% e limite máximo de 10 segundos por trecho. "
-                    "Se a licença ou autorização não puder ser verificada automaticamente, "
-                    "o sistema descarta o material e usa outra fonte licenciada."}
+            "note": "Arquivo originário do YouTube somente com relevância e direitos comprovados; "
+                    "sem percentual obrigatório. Dez segundos é limite editorial, "
+                    "não uma exceção de direitos autorais."}
 
 
-def _suitable_scene(scene, title):
+def _suitable_scene(scene, title, project):
     # Prefer scenes on the archive's actual subject, avoid replacing original maps or assets.
     if scene.get("media_provider") in ("wikimedia", "original", "authorized_youtube", "local"):
         return False
@@ -283,9 +283,17 @@ def _suitable_scene(scene, title):
             return "foz" in context or "brasil" in context
         return ("ponte" in context or "bridge" in context) and \
                ("paraguai" in context or "amizade" in context or "foz" in context or "fronteira" in context)
-    useful = [x for x in re.findall(r"[a-z]{5,}", title_norm) if x not in
-              ("video", "youtube", "filme", "reportagem", "documentario")]
-    return any(word in context for word in useful[:4])
+    # Other archives need strong evidence: at least two distinctive words
+    # from a verified source must appear in the scene and in the project topic.
+    stop = {"video","youtube","filme","reportagem","documentario","documentary",
+            "history","historia","archives","arquivo","recording","clip","source",
+            "people","world","the","this","that","about","stock","original"}
+    important = {w for w in re.findall(r"[a-z]{5,}", title_norm)
+                 if w not in stop and len(w) >= 5}
+    project_context = normalized((project.get("title") or "")+" "+
+                                 (project.get("topic") or ""))
+    shared = {w for w in important if w in context and w in project_context}
+    return len(shared) >= 2
 
 
 def enforce(studio, pid):
@@ -293,27 +301,34 @@ def enforce(studio, pid):
     if project.get("status") == "concluído":
         return report(project)
     before = report(project)
-    if before["target_met"] or len(project.get("scenes") or []) > 120:
+    if len(project.get("scenes") or []) > 120:
+        return before
+    try:
+        from studio_semantic_media import domain_of
+        domain = domain_of(project.get("title") or "",
+                           project.get("topic") or "")
+    except ImportError:
+        domain = "general"
+    # Archival footage adds value for named historical events, infrastructure
+    # and space missions; it is not a quota to fill for all videos.
+    if domain not in ("history","infrastructure","science_space"):
         return before
     candidates = _commons_candidates(project)
     local = _local_authorized_sources(studio)
     used = {s.get("media_url") for s in project["scenes"] if s.get("media_url")}
     used_local = {s.get("media_local") for s in project["scenes"] if s.get("media_local")}
-    selected = before["selected_seconds"]
-    target_seconds = before["total_seconds"] * before["target_percent"] / 100
-    # Preserve order: Creative Commons / public domain first, then documented permission.
-    # Categories 3 and 4 are automatically declined in the absence of a verified right
-    # to use the clip; do not ask the owner to approve every documentary.
+    selected_count=0
+    max_archival_scenes = 2
     for group in (candidates, local):
         for asset in group:
-            if selected >= target_seconds:
+            if selected_count >= max_archival_scenes:
                 break
             if asset.get("url") in used or (asset.get("media_local") and asset["media_local"] in used_local):
                 continue
             for scene in project["scenes"]:
                 if duration(scene) > MAX_YOUTUBE_CLIP_SECONDS:
                     continue
-                if not _suitable_scene(scene, asset["title"]):
+                if not _suitable_scene(scene, asset["title"], project):
                     continue
                 try:
                     with studio.db() as conn:
@@ -334,16 +349,16 @@ def enforce(studio, pid):
                               str(asset.get("author") or "Autor autorizado")[:120] +
                               " | autorização documentada", scene["id"], pid))
                             used_local.add(asset["media_local"])
-                    selected += duration(scene)
+                    selected_count += 1
                     # Never reuse a clip to artificially reach the target.
                     break
                 except (OSError, ValueError, KeyError):
                     break
-        if selected >= target_seconds:
+        if selected_count >= max_archival_scenes:
             break
     after = report(studio.get_project(pid))
-    print("[youtube-policy] project=%s goal=%s%% achieved=%s%%" %
-          (pid, after["target_percent"], after["actual_percent"]), flush=True)
+    print("[youtube-policy] project=%s domain=%s matching_archival_scenes=%d; no quota forced" %
+          (pid,domain,selected_count), flush=True)
     return after
 
 
