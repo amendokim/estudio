@@ -126,7 +126,11 @@ def _run(studio):
         # because storage/render fails later.
         _update(studio,"script_ready",project_id=pid,
                 note="Roteiro espanhol concluído, preparando vídeo")
-        _attach_channel(studio,pid)
+        try:
+            _attach_channel(studio,pid)
+        except (OSError,ValueError,RuntimeError,KeyError) as exc:
+            print("[fudoshin-pilot] Channel metadata optional; continuing without link: "
+                  +type(exc).__name__,flush=True)
         project=studio.get_project(pid)
         capacity=factory.estimate(studio,project)
         if not capacity["can_render_here"]:
