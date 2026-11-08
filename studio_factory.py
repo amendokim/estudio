@@ -345,6 +345,18 @@ archiveSearch.onclick=async()=>{archiveSearch.disabled=true;
 section.append(' ',archiveSearch);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
+const capcut=document.createElement('button');capcut.textContent='Preparar para CapCut';
+capcut.title='Exportar ZIP com áudios, legendas, mídias locais, roteiro, créditos e ordem das cenas';
+capcut.onclick=async()=>{try{
+  capcut.disabled=true;const url='/api/capcut/projects/'+encodeURIComponent(p.id);
+  const data=await req(url);
+  const info=data.package;
+  const size=Math.round((info.bytes_local||0)/1048576);
+  const warning=(info.missing_assets||[]).length;
+  const message='Preparar pacote CapCut ('+size+' MB em arquivos locais, '+warning+' referências ausentes)?\\nO arquivo contém trilhas de áudio, legendas e mídias locais, mas não é um projeto nativo do CapCut. Não baixa novos vídeos nem altera o MP4.';
+  if(confirm(message)){window.location.href=url+'/download'}
+}catch(e){alert('Exportação CapCut indisponível: '+e.message)}
+finally{capcut.disabled=false}};section.append(' ',capcut);
 if(storage.storage_configured){const arc=document.createElement('button');arc.textContent='Arquivar MP4';arc.onclick=async()=>{if(!confirm('Copiar este MP4 para o bucket? A operação pode gerar cobranças de armazenamento.'))return;try{const x=await req('/api/factory/archive/'+encodeURIComponent(p.id),{method:'POST'});alert(x.note||'Armazenado.');refresh()}catch(e){alert(e.message)}};section.append(' ',arc);
 const remote=document.createElement('a');remote.href='/api/factory/archive/'+encodeURIComponent(p.id)+'/download';remote.textContent='Baixar do bucket';section.append(' ',remote)}}
 if(p.status!=='concluído'){const button=document.createElement('button');button.textContent='Colocar na fila de produção';button.onclick=async()=>{
