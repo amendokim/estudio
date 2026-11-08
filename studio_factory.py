@@ -149,8 +149,12 @@ def gemini_json(prompt: str):
     key = os.getenv('GEMINI_API_KEY', '')
     if not key:
         raise RuntimeError('GEMINI_API_KEY não configurada. Não houve chamada paga.')
-    model = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash-lite')
-    if model not in ('gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash-lite'):
+    # New Google projects often receive 404 on legacy 2.5 models. Prefer
+    # Google's current low-cost Flash-Lite model for short script writing.
+    model = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash-lite')
+    if model not in ('gemini-3.5-flash-lite', 'gemini-3.1-flash-lite',
+                     'gemini-3.8-flash', 'gemini-3.5-flash',
+                     'gemini-2.5-flash-lite', 'gemini-2.5-flash'):
         raise RuntimeError('Modelo Gemini não permitido')
     with httpx.Client(timeout=150) as client:
         r = client.post(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
@@ -353,7 +357,7 @@ def register(studio):
         free = shutil.disk_usage(studio.DATA).free / 1048576
         return {'queue_counts': counts, 'free_disk_mb': round(free),
                 'gemini_ready': bool(os.getenv('GEMINI_API_KEY')),
-                'writer_model': os.getenv('GEMINI_MODEL', 'gemini-2.5-flash-lite'),
+                'writer_model': os.getenv('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
                 'worker_enabled': os.getenv('STUDIO_FACTORY_WORKER_ENABLED', '1') == '1',
                 'render_limit_minutes': limit_int('STUDIO_FACTORY_MAX_RENDER_MINUTES', 5, 1, 60),
                 'note': 'Não publica no YouTube. Roteiros por Gemini usam API paga apenas quando solicitados.'}
