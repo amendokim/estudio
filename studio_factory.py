@@ -316,6 +316,9 @@ const projects=await req('/api/projects');const box=document.getElementById('pro
 const storage=await req('/api/factory/storage');
 for(const p of projects){const section=document.createElement('p');section.textContent=p.title+' — '+p.status+' — '+p.duration_minutes+' min ';
 const view=document.createElement('a');view.href='/?project='+encodeURIComponent(p.id);view.textContent='Abrir';section.append(view);
+const visual=document.createElement('a');visual.href='/api/editorial/semantic/projects/'+encodeURIComponent(p.id);
+visual.textContent='Plano visual por cena';visual.target='_blank';visual.rel='noopener noreferrer';
+section.append(' · ',visual);
 const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Fontes do YouTube';archival.onclick=async()=>{try{const data=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));alert('Meta de arquivos originários do YouTube: '+data.target_percent+'%\nParticipação verificada: '+data.actual_percent+'%\nFaltam: '+data.missing_seconds+' segundos.\n\nO uso automático inclui apenas licenças verificadas e autorizações documentadas. Revisão necessária para crítica/análise.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
 const autoPolicy=document.createElement('button');autoPolicy.textContent='Regra automática: 10 s';
 autoPolicy.onclick=async()=>{try{
