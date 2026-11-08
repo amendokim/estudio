@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-RUN_ID = "first-spanish-gemini-script-v1"
+RUN_ID = "first-spanish-gemini-script-v2"
 TARGET_VOICE = "es-ES-AlvaroNeural"
 
 
