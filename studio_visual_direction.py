@@ -362,6 +362,12 @@ def install(studio):
 
     def directed_search(pid,limit):
         result=original_search(pid,limit)
+        # The universal editor supersedes psychology-only queries for all
+        # new projects. This avoids duplicated stock API traffic and
+        # contradictory scene classifications.
+        import sys
+        if "studio_semantic_media" in sys.modules:
+            return result
         p=studio.get_project(pid)
         if psychological_project(p) and p.get("status")!="concluído":
             try:
