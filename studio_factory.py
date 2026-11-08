@@ -169,14 +169,26 @@ def gemini_json(prompt: str):
                      'gemini-3.8-flash', 'gemini-3.5-flash',
                      'gemini-2.5-flash-lite', 'gemini-2.5-flash'):
         raise RuntimeError('Modelo Gemini não permitido')
-    with httpx.Client(timeout=150) as client:
-        r = client.post(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-                        headers={'x-goog-api-key': key, 'Content-Type': 'application/json'},
-                        json={'contents': [{'parts': [{'text': prompt}]}],
-                              'generationConfig': {'responseMimeType': 'application/json',
-                                                   'temperature': 0.5,
-                                                   'maxOutputTokens': 8192}})
-        r.raise_for_status()
+    # Gemini intermittently returns HTTP 503 while scaling. Retry only
+    # transient gateway/server failures, never 401/403 billing or 429 quota.
+    # Max three attempts (bounded), no repeated project creation.
+    for attempt in range(3):
+        try:
+            with httpx.Client(timeout=150) as client:
+                r = client.post(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+                                headers={'x-goog-api-key': key, 'Content-Type': 'application/json'},
+                                json={'contents': [{'parts': [{'text': prompt}]}],
+                                      'generationConfig': {'responseMimeType': 'application/json',
+                                                           'temperature': 0.5,
+                                                           'maxOutputTokens': 8192}})
+                r.raise_for_status()
+            break
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (500,502,503,504) or attempt==2:
+                raise
+            print(f"[factory] Gemini temporary HTTP {exc.response.status_code}; "
+                  f"retry {attempt+1}/2",flush=True)
+            time.sleep(6*(attempt+1))
     data = r.json()
     parts = data['candidates'][0]['content']['parts']
     return json.loads(''.join(part.get('text', '') for part in parts))
