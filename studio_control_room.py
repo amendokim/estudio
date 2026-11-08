@@ -67,6 +67,7 @@ def flags(studio,channel):
     oauth_env=bool(os.getenv("GOOGLE_YT_CLIENT_ID") and os.getenv("GOOGLE_YT_CLIENT_SECRET"))
     connected=bool(linked(studio,channel["id"]))
     ready={
+      "legacy_scheduler_disabled":os.getenv("STUDIO_NETWORK_AUTOMATION_ENABLED")!="1",
       "research_key":bool(os.getenv("YOUTUBE_DATA_API_KEY")),
       "gemini_key":bool(os.getenv("GEMINI_API_KEY")),
       "script_cost_authorized":os.getenv("STUDIO_NETWORK_ALLOW_SCRIPT_COST")=="1",
@@ -78,6 +79,7 @@ def flags(studio,channel):
     }
     reasons=[]
     for key,message in (
+      ("legacy_scheduler_disabled","Desative a agenda global antiga: STUDIO_NETWORK_AUTOMATION_ENABLED deve permanecer 0 para evitar duplicações."),
       ("research_key","Configure a chave do YouTube Data API."),
       ("gemini_key","Configure a chave da API Gemini."),
       ("script_cost_authorized","Autorize orçamento de IA em Railway: STUDIO_NETWORK_ALLOW_SCRIPT_COST=1."),
@@ -125,6 +127,34 @@ def _active_work(studio,cid):
     # upload; this is safer than building a large billable backlog.
     return int(result)
 
+def recover_expired_draft(studio,channel):
+    """Move a *not-yet-uploaded* finished draft to a future valid slot.
+
+    Never publish immediately just because the target time was missed, and
+    never modify an idea whose upload was already accepted by YouTube.
+    """
+    with studio.db() as db:
+        rows=db.execute("""SELECT i.id,i.scheduled_at FROM channel_network_ideas i
+            LEFT JOIN channel_network_uploads u ON u.idea_id=i.id
+            WHERE i.channel_id=? AND i.status='scheduled_draft' AND u.idea_id IS NULL
+            AND i.scheduled_at!='' AND i.scheduled_at<?
+            ORDER BY i.scheduled_at LIMIT 2""",
+            (channel["id"],net.iso(net.now()+timedelta(minutes=38)))).fetchall()
+    for row in rows:
+        future=pipe.next_available_slot(studio,channel)
+        if not future:
+            _save_message(studio,channel["id"],"Vídeo atrasado; não há nova janela segura.")
+            return
+        if future<=net.now()+timedelta(hours=3):
+            _save_message(studio,channel["id"],"Próxima janela de publicação está muito próxima.")
+            return
+        with studio.db() as db:
+            db.execute("""UPDATE channel_network_ideas SET scheduled_at=?
+                 WHERE id=? AND status='scheduled_draft'
+                 AND NOT EXISTS (SELECT 1 FROM channel_network_uploads WHERE idea_id=?)""",
+                 (net.iso(future),row["id"],row["id"]))
+        _save_message(studio,channel["id"],"Rascunho atrasado reagendado para janela futura segura.")
+
 def run_cycle(studio):
     with studio.db() as db:
         ids=[row["channel_id"] for row in db.execute(
@@ -137,6 +167,7 @@ def run_cycle(studio):
             ready,blockers=flags(studio,channel)
             if blockers:
                 _save_message(studio,cid,"Bloqueado: "+blockers[0]);continue
+            recover_expired_draft(studio,channel)
             if _active_work(studio,cid):
                 _save_message(studio,cid,"Existe vídeo em produção ou aguardando upload.");continue
             slot=pipe.next_available_slot(studio,channel)
@@ -283,6 +314,7 @@ function render(ch){current=ch;$('body').hidden=false;
  $('pause').disabled=ch.configuration.mode!=='running';
  const checks=$('checks');checks.replaceChildren();
  let readiness=[
+ ['Agenda global sem duplicação',ch.requirements.legacy_scheduler_disabled],
  ['Pesquisa de tendências',ch.requirements.research_key],
  ['Gemini configurado',ch.requirements.gemini_key],
  ['Orçamento de IA autorizado',ch.requirements.script_cost_authorized],
