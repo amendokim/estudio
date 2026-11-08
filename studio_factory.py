@@ -11,6 +11,18 @@ from __future__ import annotations
 import json
 import math
 import os
+# Railway may contain a legacy environment key using spaces or mixed case.
+# Normalize only inside the running process; do not copy or log the secret.
+if not os.environ.get("GEMINI_API_KEY"):
+    for _legacy_gemini_name in ("Gemini API Key", "Gemini_API_Key", "Gemini_API_KEY"):
+        _legacy_gemini_value = os.environ.get(_legacy_gemini_name)
+        if _legacy_gemini_value and _legacy_gemini_value.strip():
+            os.environ["GEMINI_API_KEY"] = _legacy_gemini_value.strip()
+            print("[factory] Gemini API credential recognized through existing Railway variable", flush=True)
+            break
+    del _legacy_gemini_name
+    if "_legacy_gemini_value" in globals():
+        del _legacy_gemini_value
 import shutil
 import threading
 import time
