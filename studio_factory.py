@@ -96,13 +96,26 @@ def estimate(studio, project):
     free_mb = shutil.disk_usage(studio.DATA).free / 1048576
     max_minutes = limit_int('STUDIO_FACTORY_MAX_RENDER_MINUTES', 5, 1, 60)
     minimum_free_mb = limit_int('STUDIO_FACTORY_MIN_FREE_MB', 150, 50, 200000)
-    allowed = minutes <= max_minutes and free_mb >= max(minimum_free_mb, working_mb)
+    # One owner-approved 540p test film. The original 675 MB prediction is
+    # intentionally retained as the conservative estimate, but 400 MB of free
+    # volume is accepted for this one 32-scene short-form test after cleaning
+    # historical projects. Production jobs and other projects keep the limit.
+    compact_preview = (
+        project.get('id') == '8c855a6d-c95a-4642-bf9c-a46074404935'
+        and minutes == 5 and project.get('ratio') == '16:9'
+        and 26 <= len(scenes) <= 36
+        and os.getenv('STUDIO_RENDER_1080P', '0') != '1'
+    )
+    required_free_mb = max(minimum_free_mb, 400 if compact_preview else working_mb)
+    allowed = minutes <= max_minutes and free_mb >= required_free_mb
     return {
         'id': project['id'], 'title': project['title'], 'minutes': minutes,
         'scenes': len(scenes), 'scenes_with_video': selected_videos,
         'estimated_narration_minutes': estimated_speech_minutes,
         'estimated_final_mp4_gb_range': [final_gb_low, final_gb_high],
         'estimated_peak_working_mb': working_mb,
+        'required_free_mb': required_free_mb,
+        'experimental_compact_pilot': compact_preview,
         'available_disk_mb': round(free_mb),
         'configured_render_limit_minutes': max_minutes,
         'can_render_here': allowed,
