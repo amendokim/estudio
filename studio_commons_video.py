@@ -154,6 +154,12 @@ def repair_stock_video(studio, pid, limit, result):
     scenes = project["scenes"]
     if not scenes or len(scenes) > 120:
         return result
+    # This fallback list deliberately contains bridge, traffic and river
+    # searches. Apply it ONLY to the named Friendship Bridge documentary.
+    # Reusing these terms for other channels caused wildly unrelated B-roll.
+    subject = ((project.get("title") or "") + " " + (project.get("topic") or "")).casefold()
+    if "ponte da amizade" not in subject and "friendship bridge" not in subject:
+        return result
     runtime = sum(max(1.0, float(s.get("duration") or 8)) for s in scenes)
     video = sum(max(1.0, float(s.get("duration") or 8))
                 for s in scenes if s.get("media_kind") == "video")
