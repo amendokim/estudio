@@ -178,9 +178,19 @@ def render(studio: Any, pid: str):
         args += ["-vf", f"ass={ass_path}", "-c:v", "libx264", "-preset", preset,
                  "-crf", "26", "-pix_fmt", "yuv420p"]
         if p.get("soundtrack"):
-            args += ["-filter_complex", "[1:a]volume=1[a0];[2:a]volume=0.10[a1];"
-                     "[a0][a1]amix=inputs=2:duration=first[aout]", "-map", "0:v:0",
-                     "-map", "[aout]"]
+            # Voice-first mix: soft background bed automatically ducks under
+            # spoken narration and recovers gently through natural pauses.
+            # FFmpeg-only; no paid mixing services or outside music API.
+            args += ["-filter_complex",
+                     "[1:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+                     "volume=1[voice];"
+                     "[2:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+                     "volume=0.17[bed];"
+                     "[bed][voice]sidechaincompress=threshold=0.025:"
+                     "ratio=6:attack=35:release=650[duck];"
+                     "[voice][duck]amix=inputs=2:duration=first:"
+                     "dropout_transition=0:normalize=0[aout]",
+                     "-map", "0:v:0","-map","[aout]"]
         else:
             args += ["-map", "0:v:0", "-map", "1:a:0"]
         args += ["-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"]
