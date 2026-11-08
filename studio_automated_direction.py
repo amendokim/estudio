@@ -296,21 +296,29 @@ def install(studio):
         channel=semantic.channel_context(studio,project)
         plan,_=semantic.load_plan(studio,project,allow_ai=False,write=False)
         changed=0
-        for scene,shot in zip(project.get("scenes") or [],plan["scenes"]):
+        for index,(scene,shot) in enumerate(zip(project.get("scenes") or [],plan["scenes"])):
             choice=classify_scene(project,channel,scene,shot)
-            # This is a final legal gate. A mismatched YouTube-origin source
-            # is not silently accepted. Let the generic selector choose
-            # licensed stock or original artwork on future searches.
-            if choice["preferred_source"]!="revisar_direitos":
+            if scene.get("media_provider") not in ("authorized_youtube","wikimedia"):
                 continue
-            if scene.get("media_provider")!="authorized_youtube":
+            if choice["archive_auto_approved"]:
                 continue
+            # Fail closed on irrelevant or unverifiable archive. Provide an
+            # original editorial replacement rather than leave a blank shot.
+            shot["channel_name"]=channel.get("name") or "Estúdio IA"
+            try:
+                replacement=semantic.animated_fallback(studio,project,pid,index,shot)
+            except (OSError,ValueError,RuntimeError):
+                replacement=semantic.fallback_graphic(studio,project,pid,index,shot)
+            relative=str(replacement.relative_to(studio.MEDIA))
+            kind="video" if replacement.suffix==".mp4" else "image"
             with studio.db() as db:
-                db.execute("""UPDATE scenes SET media_url='',media_local='',
-                     media_kind='',media_provider='',source_page='',author='',thumb=''
-                     WHERE id=? AND project_id=?""",(scene["id"],pid))
+                db.execute("""UPDATE scenes SET media_url='',media_local=?,
+                     media_kind=?,media_provider='original',source_page='',author=?,
+                     thumb='' WHERE id=? AND project_id=?""",
+                     (relative,kind,"Composição editorial original: arquivo não verificado",
+                      scene["id"],pid))
             changed+=1
-        if changed:print("[editorial-director] blocked %d unapproved archives" % changed,flush=True)
+        if changed:print("[editorial-director] replaced %d unverified or mismatched archive shots with original visuals" % changed,flush=True)
         return result
 
     def cut_on_fetch(scene,pid,*args,**kwargs):
