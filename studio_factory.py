@@ -323,12 +323,12 @@ const direction=document.createElement('a');
 direction.href='/api/editorial/strategy/projects/'+encodeURIComponent(p.id);
 direction.textContent='Origem de mídia e ritmo';direction.target='_blank';
 direction.rel='noopener noreferrer';section.append(' · ',direction);
-const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Fontes do YouTube';archival.onclick=async()=>{try{const data=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));alert('Meta de arquivos originários do YouTube: '+data.target_percent+'%\nParticipação verificada: '+data.actual_percent+'%\nFaltam: '+data.missing_seconds+' segundos.\n\nO uso automático inclui apenas licenças verificadas e autorizações documentadas. Revisão necessária para crítica/análise.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
+const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Fontes do YouTube';archival.onclick=async()=>{try{const data=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));alert('Arquivo de origem YouTube é opcional: somente quando o tema, a cena e os direitos de uso estão comprovados. Participação atual: '+data.actual_percent+'%. Sem meta percentual obrigatória.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
 const autoPolicy=document.createElement('button');autoPolicy.textContent='Regra automática: 10 s';
 autoPolicy.onclick=async()=>{try{
  const rules=await req('/api/youtube-policy');
  const summary=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));
- alert('Seleção automática ativa.\nMeta YouTube: '+summary.target_percent+'%\nTrecho máximo: '+rules.max_youtube_clip_seconds+' segundos.\nParticipação selecionada: '+summary.actual_percent+'%.\nFaltam: '+summary.missing_seconds+' segundos.\nFontes sem direito de uso verificável são substituídas automaticamente por mídia licenciada.');
+ alert('Escolha por relevância e direitos comprovados. Sem meta fixa de YouTube. Arquivo verificado: '+summary.actual_percent+'%. Limite editorial de trecho: '+rules.max_youtube_clip_seconds+' segundos. Essa duração não dispensa licença.');
 }catch(e){alert(e.message)}};
 section.append(' ',autoPolicy);
 const archiveSearch=document.createElement('button');archiveSearch.textContent='Buscar acervo licenciado';
