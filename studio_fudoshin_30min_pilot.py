@@ -186,6 +186,11 @@ def install(studio):
             db.execute("""INSERT OR IGNORE INTO studio_owner_30min_pilot
                 (id,stage,created_at,updated_at) VALUES(?,?,?,?)""",
                 (PILOT,"queued",_now(),_now()))
+        previous=_state(studio)
+        if previous and previous["stage"] in ("failed","writing","waiting_capacity"):
+            # Read-only error diagnostics: no second AI call is initiated.
+            print("[fudoshin-pilot] EXISTING state="+previous["stage"]+
+                  " detail="+str(previous.get("note") or "")[:320],flush=True)
         threading.Thread(target=_run,args=(studio,),
                 daemon=True,name="fudoshin-owner-30min-pilot").start()
 
