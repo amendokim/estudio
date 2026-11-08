@@ -192,7 +192,7 @@ def install(studio):
 def self_test():
     assert len(TITLE)>15
     assert "Código Fudoshin" in TOPIC
-    assert "YouTube" in TOPIC
+    assert "seis capítulos" in TOPIC
     assert PILOT.endswith("-v1")
     print("[fudoshin-pilot] SELF-TEST PASS one-shot, Spanish, render only, no uploads",flush=True)
 
