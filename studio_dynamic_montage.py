@@ -233,10 +233,18 @@ def make_scene(studio,pid,project,index,entry,out,final,preset="veryfast"):
             source_duration=_dur(studio,local)
             is_video=asset.get("media_kind")=="video"
             # Use a different section and crop if a source appears again later.
-            if is_video and source_duration>.5:
-                available=max(0,source_duration-duration-.4)
+            if is_video:
+                # Never silently loop a shorter clip to pad a voice segment.
+                # Reject the source so the editor can request more media rather
+                # than repeat the same frames, as happened in the first pilot.
+                if source_duration + 0.05 < duration:
+                    raise RuntimeError(
+                        f"Cena {index+1}, tomada {j+1}: vídeo-fonte de "
+                        f"{source_duration:.1f}s menor que corte de {duration:.1f}s; "
+                        "nenhum loop permitido")
+                available=max(0,source_duration-duration-.2)
                 offset=min(available,(j*3.1+index*1.7)%max(1,available))
-                input_args=["-ss",f"{offset:.3f}","-stream_loop","-1","-i",str(local)]
+                input_args=["-ss",f"{offset:.3f}","-i",str(local)]
             else:
                 input_args=["-loop","1","-framerate","24","-i",str(local)]
             zoom=1.05 if (j%3==0) else (1.08 if j%3==1 else 1.02)
