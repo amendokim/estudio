@@ -85,9 +85,19 @@ def mood_for(project):
     scored=[]
     for mood,settings in PROFILES.items():
         if mood=="documentary":continue
-        marks=[norm(m) for m in settings["keywords"]]
-        scored.append((sum(5 for m in marks if m in lead)+
-                       sum(1 for m in marks if m in context),mood))
+        # Synonym substrings such as 'ocean'/'oceano' must not count
+        # twice for the same subject and overpower the narrative intention.
+        marks=sorted(set(norm(m) for m in settings["keywords"]),
+                     key=len,reverse=True)
+        selected=[]
+        for mark in marks:
+            if mark in lead and not any(mark in x for x in selected):
+                selected.append(mark)
+        lead_score=5*len(selected)
+        if mood=="mystery" and any(mark in lead for mark in
+                                   ("mister","crime","investig","enigma","secret")):
+            lead_score+=3
+        scored.append((lead_score+sum(1 for m in marks if m in context),mood))
     scored.sort(reverse=True)
     return scored[0][1] if scored and scored[0][0] else "documentary"
 
