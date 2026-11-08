@@ -74,8 +74,8 @@ def _resolve_inside(candidate,root):
     return check
 
 def _entry(path,arc):
-    if any(x in arc for x in ("..","\\","\0")) or arc.startswith("/") or
-       "\r" in arc or "\n" in arc:
+    if (any(x in arc for x in ("..","\\","\0"))
+            or arc.startswith("/") or "\r" in arc or "\n" in arc):
         return None
     return (path,arc)
 
