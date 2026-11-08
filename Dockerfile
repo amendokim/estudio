@@ -60,6 +60,8 @@ COPY studio_capcut_local_importer.py /app/studio_capcut_local_importer.py
 RUN python -m py_compile /app/studio_capcut_local_importer.py
 COPY studio_capcut_export.py /app/studio_capcut_export.py
 RUN python -m py_compile /app/studio_capcut_export.py && python /app/studio_capcut_export.py
+COPY studio_music_director.py /app/studio_music_director.py
+RUN python -m py_compile /app/studio_music_director.py && python /app/studio_music_director.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
