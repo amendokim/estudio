@@ -52,6 +52,10 @@ COPY studio_semantic_stock_smoke.py /app/studio_semantic_stock_smoke.py
 RUN python -m py_compile /app/studio_semantic_stock_smoke.py && python /app/studio_semantic_stock_smoke.py
 COPY studio_automated_direction.py /app/studio_automated_direction.py
 RUN python -m py_compile /app/studio_youtube_policy.py /app/studio_automated_direction.py && python /app/studio_automated_direction.py
+COPY studio_publishing_pack.py /app/studio_publishing_pack.py
+RUN python -m py_compile /app/studio_publishing_pack.py && python /app/studio_publishing_pack.py
+COPY studio_control_room.py /app/studio_control_room.py
+RUN python -m py_compile /app/studio_control_room.py && python /app/studio_control_room.py
 COPY studio_capcut_local_importer.py /app/studio_capcut_local_importer.py
 RUN python -m py_compile /app/studio_capcut_local_importer.py
 COPY studio_capcut_export.py /app/studio_capcut_export.py
