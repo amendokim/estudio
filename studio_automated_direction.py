@@ -59,11 +59,13 @@ def _subject_specific(scene,project):
 
 def _is_explainer(scene):
     text=semantic.normalized(scene.get("text") or "")
-    return bool(re.search(r"\b(?:porcentagem|percentual|por ciento|percent|percentage|"
-                          r"grafico|grafico|chart|diagram|tabla|tabela|"
-                          r"primero|segundo|tercero|paso|passo|step|"
-                          r"difference|diferenca|diferencia)\b",text)) or
-                re.search(r"\d+(?:[.,]\d+)?\s*%",text))
+    return bool(
+        re.search(r"\b(?:porcentagem|percentual|por ciento|percent|percentage|"
+                  r"grafico|chart|diagram|tabla|tabela|"
+                  r"primero|segundo|tercero|paso|passo|step|"
+                  r"difference|diferenca|diferencia)\b",text)
+        or re.search(r"\d+(?:[.,]\d+)?\s*%",text)
+    )
 
 def classify_scene(project,channel,scene,shot):
     domain,style=profile_for(project,channel)
