@@ -48,6 +48,8 @@ COPY studio_editorial_preview.py /app/studio_editorial_preview.py
 RUN python -m py_compile /app/studio_editorial_preview.py && python /app/studio_editorial_preview.py
 COPY studio_semantic_media.py /app/studio_semantic_media.py
 RUN python -m py_compile /app/studio_semantic_media.py && python /app/studio_semantic_media.py
+COPY studio_dynamic_montage.py /app/studio_dynamic_montage.py
+RUN python -m py_compile /app/studio_dynamic_montage.py && python /app/studio_dynamic_montage.py
 COPY studio_semantic_stock_smoke.py /app/studio_semantic_stock_smoke.py
 RUN python -m py_compile /app/studio_semantic_stock_smoke.py && python /app/studio_semantic_stock_smoke.py
 COPY studio_automated_direction.py /app/studio_automated_direction.py
@@ -66,6 +68,8 @@ COPY studio_music_chapters.py /app/studio_music_chapters.py
 RUN python -m py_compile /app/studio_music_chapters.py && python /app/studio_music_chapters.py
 COPY studio_fudoshin_30min_pilot.py /app/studio_fudoshin_30min_pilot.py
 RUN python -m py_compile /app/studio_fudoshin_30min_pilot.py && python /app/studio_fudoshin_30min_pilot.py
+COPY studio_elevenlabs_tts.py /app/studio_elevenlabs_tts.py
+RUN python -m py_compile /app/studio_elevenlabs_tts.py && python /app/studio_elevenlabs_tts.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
