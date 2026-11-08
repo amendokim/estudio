@@ -239,15 +239,23 @@ def publish(studio,channel_id,idea_id):
     try:
         access=authenticated_token(studio,channel_id)
         references=json.loads(idea["analysis_json"]).get("source_urls") or []
+        # Primary original packaging is uploaded now; the other two
+        # title/thumbnail pairs are saved for YouTube Studio's *manual*
+        # native A/B test. The public Data API cannot initiate that test.
+        try:
+            import studio_publishing_pack
+            package=studio_publishing_pack.metadata_for_upload(studio,idea_id)
+        except Exception as exc:
+            print("[channel-upload] packaging fallback: "+type(exc).__name__,flush=True)
+            package={"title":idea["title"],"tags":[],
+                     "thumbnail_path":None,
+                     "description":(idea["hook"]+"\n\n"+
+                         "\n".join(references[:5]))[:4500]}
         details={
             "snippet":{
-                "title":idea["title"][:100],
-                "description":(
-                    "Documentário original: "+idea["hook"]+
-                    "\n\nReferências de contexto (não são mídias reutilizadas):\n"+
-                    "\n".join(references[:5])+
-                    "\n\nCréditos específicos das imagens utilizadas constam no projeto."
-                )[:4500],
+                "title":package["title"][:100],
+                "description":package["description"][:4500],
+                "tags":package.get("tags") or [],
                 "categoryId":"27",
                 "defaultLanguage":channel["language"]
             },
@@ -287,7 +295,8 @@ def publish(studio,channel_id,idea_id):
             db.execute("UPDATE channel_network_ideas SET status='scheduled_youtube' WHERE id=?",(idea_id,))
         # Thumbnail is best-effort and failure never causes a second video upload.
         warning=""
-        image_path=(Path(studio.DATA)/idea["thumbnail_local"]).resolve()
+        image_path=Path(package.get("thumbnail_path") or
+                         Path(studio.DATA)/idea["thumbnail_local"]).resolve()
         thumb_root=(Path(studio.DATA)/"channel_network_thumbs").resolve()
         if image_path.is_relative_to(thumb_root) and image_path.is_file():
             try:
