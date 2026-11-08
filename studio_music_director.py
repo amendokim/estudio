@@ -106,9 +106,9 @@ def _notes(root,minor):
     intervals=(0,3,7,10) if minor else (0,4,7,11)
     return tuple(440.0*2**((root+n-69)/12) for n in intervals)
 
-def _synth(path,mood,seconds=MUSIC_SECONDS,rate=SAMPLE_RATE):
+def _synth(path,mood,seconds=MUSIC_SECONDS,rate=SAMPLE_RATE,profile_override=None):
     """Generate gentle original pads with slow changes and quiet arpeggios."""
-    profile=PROFILES[mood]
+    profile=profile_override if profile_override is not None else PROFILES[mood]
     chords=[_notes(note,profile["minor"]) for note in profile["progression"]]
     phase_len=seconds/len(chords)
     brightness=float(profile["brightness"])
