@@ -139,6 +139,11 @@ def _gather(studio,project):
     optional_directory(root/"clips","03_midias_cache",80)
     optional_directory(root/"media","03_midias_cache_extra",80)
     optional_directory(root/"export"/"longform_segments","03_tomadas_renderizadas",120)
+    # Portable baseline so the local CapCut importer can reconstruct a
+    # fully timed timeline even if older stock clips were not cached.
+    # Audio is muted there; the original voice remains a separate edit track.
+    add(root/"export"/"video_final.mp4",
+        "03_midias_locais/video_final_base.mp4")
 
     try:
         import studio_semantic_media as semantic
@@ -254,7 +259,8 @@ def _gather(studio,project):
       "4. Siga ordem_cenas.csv para inserir as mídias nos intervalos corretos.\n"
       "5. Importe legendas.srt, quando disponível, ou copie o texto do roteiro.\n"
       "6. Adicione transições, efeitos Pro e vinhetas e revise a sincronização.\n"
-      "7. Confira creditos_e_licencas.csv antes de qualquer publicação.\n\n"
+      "7. Confira creditos_e_licencas.csv antes de qualquer publicação.\n"
+      "8. No CapCut Desktop, também pode criar um rascunho via IMPORTAR_NO_CAPCUT.py.\n\n"
       "IMPORTANTE\n"
       "- Não é um projeto nativo (.ccp) do CapCut, nem importa cortes sozinho.\n"
       "- Arquivos de bancos não guardados localmente aparecem na coluna de URL.\n"
@@ -276,6 +282,43 @@ def _gather(studio,project):
     if missing:
         metadata["04_plano/arquivos_para_revisar.txt"]=(
             "\n".join(missing)+"\n").encode("utf-8")
+
+    # Desktop-only native draft bridge: a user explicitly runs this on
+    # the machine with CapCut installed. Server never writes local draft files.
+    local_importer=Path("/app/studio_capcut_local_importer.py")
+    if local_importer.is_file() and local_importer.stat().st_size<150000:
+        metadata["IMPORTAR_NO_CAPCUT.py"]=local_importer.read_bytes()
+        metadata["IMPORTAR_NO_CAPCUT_WINDOWS.bat"]=(
+            "@echo off\r\n"
+            "cd /d \"%~dp0\"\r\n"
+            "echo Criar rascunho CapCut Desktop - primeiro FECHE o CapCut.\r\n"
+            "echo Requer Python e pycapcut==0.0.4.\r\n"
+            "py -3 IMPORTAR_NO_CAPCUT.py\r\n"
+            "pause\r\n").encode("utf-8")
+        metadata["IMPORTAR_NO_CAPCUT_MAC.command"]=(
+            "#!/bin/sh\n"
+            "cd \"$(dirname \"$0\")\" || exit 1\n"
+            "echo 'Feche o CapCut antes de criar o rascunho.'\n"
+            "python3 IMPORTAR_NO_CAPCUT.py\n"
+            "echo 'Pressione Enter para sair'; read answer\n").encode("utf-8")
+        metadata["LEIA_COMO_CRIAR_RASCUNHO.txt"]=(
+            "CAPCUT DESKTOP (Windows/macOS) - RASCUNHO EDITÁVEL EXPERIMENTAL\n\n"
+            "1. Instale Python 3.11+ se não tiver.\n"
+            "2. Execute no terminal: python -m pip install pycapcut==0.0.4\n"
+            "   No macOS use python3.\n"
+            "3. Feche o CapCut Desktop. Descompacte e mantenha esta pasta.\n"
+            "4. Windows: clique IMPORTAR_NO_CAPCUT_WINDOWS.bat.\n"
+            "   macOS: rode python3 IMPORTAR_NO_CAPCUT.py no Terminal.\n"
+            "5. Reabra o CapCut e procure pelo novo rascunho 'Estudio IA - ...'.\n"
+            "6. O rascunho terá vídeo base cortado por cena e narração independente.\n"
+            "   B-rolls originais somente onde arquivos separados estão disponíveis.\n"
+            "7. Não exclua nem mova esta pasta depois de importar: caminhos\n"
+            "   dos materiais referenciam os arquivos extraídos.\n\n"
+            "Não é uma integração oficial do CapCut; versões recentes podem\n"
+            "exigir reajustes. O script não modifica rascunhos existentes.\n"
+            "No celular este método não funciona.\n").encode("utf-8")
+        meta["capcut_desktop_importer_included"]=True
+        meta["native_draft_compatibility"]="experimental_unverified_on_user_device"
     return meta,included,metadata
 
 class _QueueSink:
