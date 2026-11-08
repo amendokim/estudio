@@ -50,6 +50,10 @@ def _schema(studio):
            note TEXT NOT NULL DEFAULT '',
            created_at TEXT NOT NULL,
            updated_at TEXT NOT NULL)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS studio_owner_30min_pilot_retries(
+           id TEXT PRIMARY KEY,
+           reason TEXT NOT NULL,
+           created_at TEXT NOT NULL)""")
 
 def _state(studio):
     with studio.db() as db:
@@ -186,6 +190,20 @@ def install(studio):
             db.execute("""INSERT OR IGNORE INTO studio_owner_30min_pilot
                 (id,stage,created_at,updated_at) VALUES(?,?,?,?)""",
                 (PILOT,"queued",_now(),_now()))
+            previous_row=db.execute("""SELECT stage,note FROM studio_owner_30min_pilot
+                 WHERE id=?""",(PILOT,)).fetchone()
+            # Only one owner-approved reattempt, solely after transient
+            # Google HTTP 503. Quota/auth/billing errors are never retried.
+            if (previous_row and previous_row["stage"]=="failed"
+                  and "503 Service Unavailable" in previous_row["note"]):
+                claim=db.execute("""INSERT OR IGNORE INTO studio_owner_30min_pilot_retries
+                    (id,reason,created_at) VALUES(?,?,?)""",
+                    (PILOT,"Gemini transient HTTP 503",_now()))
+                if claim.rowcount==1:
+                    db.execute("""UPDATE studio_owner_30min_pilot SET
+                        stage='queued',note='Second and final bounded attempt after 503',
+                        updated_at=? WHERE id=?""",(_now(),PILOT))
+                    print("[fudoshin-pilot] One owner-requested controlled retry after HTTP 503",flush=True)
         previous=_state(studio)
         if previous and previous["stage"] in ("failed","writing","waiting_capacity"):
             # Read-only error diagnostics: no second AI call is initiated.
