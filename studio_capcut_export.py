@@ -359,6 +359,27 @@ def self_test():
     print("[capcut-export] SELF-TEST PASS safe paths, no-temp ZIP stream, edit handoff",flush=True)
 
 def install(studio):
+    @studio.app.on_event("startup")
+    def verify_existing_capcut_handoff():
+        # Read-only validation of the two owner-approved example projects.
+        # This makes it possible to confirm actual asset availability without
+        # downloading ZIPs or consuming more Railway disk.
+        for project_id in (
+            "b625c7bc-3542-4233-9901-7567501996c0",
+            "8c855a6d-c95a-4642-bf9c-a46074404935",
+        ):
+            try:
+                project=studio.get_project(project_id)
+                report,local_files,_=_gather(studio,project)
+                print("[capcut-export] READY project="+project_id[:8]+
+                      " local_files="+str(report["files_local"])+
+                      " local_MB="+str(round(report["bytes_local"]/1048576,1))+
+                      " missing_references="+str(len(report["missing_assets"]))+
+                      " scene_count="+str(report["scene_count"]),flush=True)
+            except Exception as exc:
+                print("[capcut-export] CHECK FAILED project="+project_id[:8]+
+                      " exception="+type(exc).__name__,flush=True)
+
     @studio.app.get("/api/capcut/projects/{pid}")
     def summary(pid:str):
         if not PROJECT_ID.fullmatch(pid):raise HTTPException(400,"Projeto inválido")
