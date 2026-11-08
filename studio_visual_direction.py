@@ -379,7 +379,10 @@ def install(studio):
 
     def new_subtitles(project,out,width,height):
         ass,srt=original_subtitles(project,out,width,height)
-        if psychological_project(project):
+        import sys
+        # Universal channel-aware typography now owns titles and chapters.
+        # Avoid duplicating the former Fudoshin-specific overlay.
+        if psychological_project(project) and "studio_automated_direction" not in sys.modules:
             events=graphic_events(project,width,height)
             if events:
                 with open(ass,"a",encoding="utf-8") as handle:
