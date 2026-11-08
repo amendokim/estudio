@@ -188,6 +188,31 @@ def _card(studio,pid,index,cat):
     im.save(dest,optimize=True)
     return dest
 
+def _animated_card(studio,pid,index,cat):
+    """Ken Burns motion on a branded, original card, with no external footage."""
+    import subprocess
+    still=_card(studio,pid,index,cat)
+    clip=still.with_suffix(".mp4")
+    if clip.exists() and clip.stat().st_size>4000:
+        return clip
+    temp=clip.with_suffix(".partial.mp4")
+    filt=("zoompan=z='min(zoom+0.00042,1.095)':"
+          "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+          "d=1:s=960x540:fps=24,format=yuv420p")
+    cmd=[studio.FFMPEG,"-hide_banner","-loglevel","error","-nostdin","-y",
+         "-loop","1","-framerate","24","-i",str(still),
+         "-t","15","-vf",filt,"-an","-c:v","libx264",
+         "-preset","ultrafast","-crf","31","-pix_fmt","yuv420p",
+         "-movflags","+faststart",str(temp)]
+    try:
+        cp=subprocess.run(cmd,timeout=90,capture_output=True,check=False)
+        if cp.returncode!=0 or not temp.is_file() or temp.stat().st_size<4000:
+            raise RuntimeError("Cinemática de card indisponível")
+        temp.replace(clip)
+        return clip
+    finally:
+        temp.unlink(missing_ok=True)
+
 def _selected_pixabay(scene, used, query_cache, client, key):
     query_sequence=query_list(scene)
     for phrase in query_sequence:
@@ -264,13 +289,19 @@ def direct(studio,pid,limit=64,allow_completed=False):
                           (url,page,author,scene["id"],pid))
                     used.add(url);selected+=1
                 else:
-                    local=_card(studio,pid,i,cat)
+                    # A subtle moving composition is preferable to a static
+                    # slide; fall back to still artwork on low-memory workers.
+                    try:
+                        local=_animated_card(studio,pid,i,cat)
+                    except (OSError,RuntimeError,ValueError):
+                        local=_card(studio,pid,i,cat)
                     relative=str(local.relative_to(studio.MEDIA))
-                    db.execute("""UPDATE scenes SET media_url='',media_local=?,media_kind='image',
+                    kind="video" if local.suffix==".mp4" else "image"
+                    db.execute("""UPDATE scenes SET media_url='',media_local=?,media_kind=?,
                            media_provider='original',source_page='',thumb='',
-                           author='Card editorial original Código Fudoshin'
+                           author='Vinheta animada original Código Fudoshin'
                            WHERE id=? AND project_id=?""",
-                           (relative,scene["id"],pid))
+                           (relative,kind,scene["id"],pid))
                     cards+=1
     print(f"[editorial] project={pid[:8]} shotlist={len(scenes)} B-roll={selected} original_cards={cards} retained={kept} searches={len(cache)}",flush=True)
     return {"applies":True,"scenes":len(scenes),"licensed_broll_selected":selected,
