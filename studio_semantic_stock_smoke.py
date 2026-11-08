@@ -52,8 +52,8 @@ def run(studio):
                 scores=[sem._relevant_candidate(shot,h.get("tags") or "") for h in hits]
                 matched+=sum(score>=sem.MIN_SCORE for score in scores)
                 rejected+=sum(score<sem.MIN_SCORE for score in scores)
-        detail="provider_calls="+str(queries)+"; relevant_candidates="+str(matched)+
-                "; filtered_candidates="+str(rejected)
+        detail=("provider_calls="+str(queries)+"; relevant_candidates="+str(matched)
+                +"; filtered_candidates="+str(rejected))
         print("[semantic-stock] VERIFIED "+detail+
               "; provider metadata evaluated; no file downloaded",flush=True)
     except Exception as exc:
