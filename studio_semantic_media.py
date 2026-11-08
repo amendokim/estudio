@@ -703,6 +703,45 @@ def run_tests():
             assert _relevant_candidate(simulated,"random "+rejected+" footage")<MIN_SCORE
     print("[semantic-media] SELF-TEST PASS 8 niches plus unknown-topic, channel override, candidate ranking and cross-topic rejection",flush=True)
 
+def _verify_live_once(studio):
+    """Read one existing finished channel script, not its media or MP4.
+
+    At most one bounded Gemini storyboard request, guarded by the persistent
+    studio_semantic_audit row. The film itself remains untouched.
+    """
+    with studio.db() as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS studio_semantic_smoke(
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
+            status TEXT NOT NULL, details TEXT NOT NULL DEFAULT '')""")
+        candidate=db.execute("""SELECT i.project_id FROM channel_network_ideas i
+            WHERE i.project_id!='' ORDER BY i.created_at DESC LIMIT 1""").fetchone()
+        if not candidate:return
+        pid=candidate["project_id"]
+        marker=db.execute("INSERT OR IGNORE INTO studio_semantic_smoke"
+                          " (id,project_id,status) VALUES (?,?,?)",
+                          (VERSION,pid,"running"))
+        if marker.rowcount!=1:return
+    try:
+        p=studio.get_project(pid)
+        if len(p.get("scenes") or [])<8:
+            raise RuntimeError("Not enough scenes for a live storyboard")
+        plan,source=load_plan(studio,p,allow_ai=True,write=True)
+        if len(plan["scenes"])<8 or not plan["scenes"][0]["queries"]:
+            raise RuntimeError("Invalid live storyboard")
+        with studio.db() as db:
+            db.execute("UPDATE studio_semantic_smoke SET status='success',details=? WHERE id=?",
+                       (f"domain={plan['domain']},scenes={len(plan['scenes'])},planner={source}",
+                        VERSION))
+        print("[semantic-media] LIVE VERIFIED existing channel context and %d "
+              "scene-specific shot plans; domain=%s; planner=%s; MP4 unchanged" %
+              (len(plan["scenes"]),plan["domain"],source),flush=True)
+    except Exception as exc:
+        with studio.db() as db:
+            db.execute("UPDATE studio_semantic_smoke SET status='failed',details=? WHERE id=?",
+                       (type(exc).__name__,VERSION))
+        print("[semantic-media] LIVE verification FAILED: "+type(exc).__name__,
+              flush=True)
+
 def install(studio):
     schema(studio)
     old_find=studio._auto_find_media
@@ -715,6 +754,14 @@ def install(studio):
             print("[semantic-media] safe fallback: "+type(exc).__name__,flush=True)
         return response
     studio._auto_find_media=semantic_find
+
+    @studio.app.on_event("startup")
+    def verify_existing_channel():
+        if os.getenv("STUDIO_SEMANTIC_VERIFY_LIVE","1")=="1":
+            def job():
+                _verify_live_once(studio)
+            threading.Thread(target=job,name="semantic-storyboard-verify",
+                             daemon=True).start()
 
     @studio.app.get("/api/editorial/semantic/projects/{pid}")
     def inspect(pid:str):
