@@ -129,11 +129,8 @@ def _stem(studio,folder,mood,variation):
         shifted=tuple(notes[variation:]+notes[:variation])
         profile=dict(original,progression=shifted,
                      brightness=original["brightness"]*(1+.13*variation))
-        music.PROFILES[mood]=profile
-        try:
-            music._synth(wav,mood,seconds=music.MUSIC_SECONDS)
-        finally:
-            music.PROFILES[mood]=original
+        music._synth(wav,mood,seconds=music.MUSIC_SECONDS,
+                     profile_override=profile)
         proc=subprocess.run([studio.FFMPEG,"-hide_banner","-loglevel","error",
              "-nostdin","-y","-i",str(wav),"-c:a","libmp3lame",
              "-b:a","64k",str(partial)],capture_output=True,timeout=110)
