@@ -40,6 +40,8 @@ COPY studio_gemini_pilot.py /app/studio_gemini_pilot.py
 RUN python -m py_compile /app/studio_gemini_pilot.py && python /app/studio_gemini_pilot.py
 COPY studio_five_min_pilot.py /app/studio_five_min_pilot.py
 RUN python -m py_compile /app/studio_five_min_pilot.py && python /app/studio_five_min_pilot.py
+COPY studio_render_quota_guard.py /app/studio_render_quota_guard.py
+RUN python -m py_compile /app/studio_render_quota_guard.py && python /app/studio_render_quota_guard.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
