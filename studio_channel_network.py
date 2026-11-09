@@ -55,12 +55,26 @@ INSPIRATION_MODELS_EN = (
     ("perspective", "{subject}: Another Side of the Story"),
     ("questions", "The Important Questions About {subject}"),
 )
+INSPIRATION_MODELS_FR = (
+    ("context", "Ce que peu de gens expliquent sur {subject}"),
+    ("consequences", "Comment {subject} change notre compréhension"),
+    ("mechanism", "Ce qui se passe réellement derrière {subject}"),
+    ("perspective", "{subject} : une autre perspective"),
+    ("questions", "Les questions essentielles sur {subject}"),
+)
+INSPIRATION_MODELS_DE = (
+    ("context", "Was die meisten über {subject} übersehen"),
+    ("consequences", "Wie {subject} unser Verständnis verändert"),
+    ("mechanism", "Was wirklich hinter {subject} steckt"),
+    ("perspective", "{subject}: eine andere Perspektive"),
+    ("questions", "Die wichtigsten Fragen zu {subject}"),
+)
 ACCENTS = ["#e9a95b", "#69b6c7", "#c8849c", "#a5c46f", "#d4bf8b"]
 
 class ChannelCreate(BaseModel):
     name: str = Field(min_length=3, max_length=90)
     niche: str = Field(min_length=3, max_length=120)
-    language: str = Field(default="pt", pattern=r"^(pt|en|es)$")
+    language: str = Field(default="pt", pattern=r"^(pt|en|es|fr|de)$")
     timezone: str = Field(default="America/Sao_Paulo", min_length=3, max_length=70)
     daily_quantity: int = Field(default=1, ge=1, le=4)
     hours: list[str] = Field(default_factory=lambda: ["18:00"], min_length=1, max_length=8)
@@ -300,8 +314,10 @@ def original_concept(studio, channel, subject, snapshot):
     top = snapshot["results"][0]
     # Build a distinct framing, not a title rewrite or copied story.
     subject = re.sub(r"\s+", " ", subject).strip(" .")[:95]
-    templates = (INSPIRATION_MODELS_ES if channel.get("language")=="es" else
-                 INSPIRATION_MODELS_EN if channel.get("language")=="en" else INSPIRATION_MODELS)
+    templates = {"es":INSPIRATION_MODELS_ES,
+                 "en":INSPIRATION_MODELS_EN,
+                 "fr":INSPIRATION_MODELS_FR,
+                 "de":INSPIRATION_MODELS_DE}.get(channel.get("language"),INSPIRATION_MODELS)
     for angle, template in templates:
         title = template.format(subject=subject)
         if title not in used:
@@ -317,6 +333,10 @@ def original_concept(studio, channel, subject, snapshot):
             if channel.get("language")=="es" else
             f"What are we missing about {subject}? Examine causes and checkable evidence."
             if channel.get("language")=="en" else
+            f"Pourquoi {subject} est-il important ? Examinons le contexte et les preuves vérifiables."
+            if channel.get("language")=="fr" else
+            f"Warum ist {subject} wichtig? Wir prüfen Zusammenhänge und belegbare Fakten."
+            if channel.get("language")=="de" else
             f"Por que {subject} importa agora? Separar contexto, consequências e evidências verificáveis."
         ),
         "source_urls": [x["url"] for x in snapshot["results"][:5]],
@@ -356,7 +376,7 @@ def thumbnail(studio, channel, idea_id, subject, angle):
     limit=18
     lines=textwrap.wrap(subject,width=limit,break_long_words=False)[:4]
     d.rounded_rectangle((54,54,250,101),radius=12,fill=accent)
-    d.text((74,65),{"es":"HISTORIA","en":"STORY","pt":"DOCUMENTÁRIO"}.get(channel.get("language"),"VÍDEO"),
+    d.text((74,65),{"es":"HISTORIA","en":"STORY","pt":"DOCUMENTÁRIO","fr":"DOCUMENTAIRE","de":"DOKUMENTATION"}.get(channel.get("language"),"VÍDEO"),
            font=f_small,fill="#081522")
     for i,line in enumerate(lines):
         d.text((58,155+i*103),line,font=f_big,fill="#ffffff",stroke_width=3,stroke_fill="#10151b")
