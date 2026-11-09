@@ -21,7 +21,7 @@ def install(studio):
     if not name or not youtube_id or not niche:
         return
     if (not re.fullmatch(r"UC[A-Za-z0-9_-]{22}",youtube_id) or
-        lang not in ("es","pt","en") or len(name)>90 or len(niche)>120):
+        lang not in ("es","pt","en","fr","de") or len(name)>90 or len(niche)>120):
         print("[channel-bootstrap] Invalid channel metadata; skipped",flush=True)
         return
     zone=os.getenv("STUDIO_SEED_CHANNEL_TIMEZONE","America/Sao_Paulo")
