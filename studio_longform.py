@@ -132,7 +132,14 @@ def render(studio: Any, pid: str):
         scenes = p.get("scenes") or []
         if not scenes:
             raise RuntimeError("O projeto não contém cenas")
-        _check_source_ratio(p)
+        # Long-form documentary percentages are verified against FINAL microtakes,
+        # not the larger narration scenes. The YouTube70 module audits 70/30 below.
+        import studio_youtube_70_documentary as doc70
+        documentary_microshots=(doc70.is_documentary(p) and
+            os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1" and
+            os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT","1")=="1")
+        if not documentary_microshots:
+            _check_source_ratio(p)
         if not p.get("narration"):
             raise RuntimeError("Narração ausente; gere a narração antes da montagem")
         _check_free(studio)
@@ -148,6 +155,8 @@ def render(studio: Any, pid: str):
         if cinematic:
             import studio_dynamic_montage as dynamic
             montage = dynamic.build_plan(studio, p)
+            if documentary_microshots:
+                montage = doc70.enrich_montage(studio, p, montage)
             (out / "montage_plan_v2.json").write_text(
                 json.dumps(montage,indent=2,ensure_ascii=False),encoding="utf-8")
             print(f"[longform-editor] planned {sum(len(x['shots']) for x in montage['timeline'])} distinct-paced cuts across {len(scenes)} scenes; searches={montage['source_searches']}",flush=True)
