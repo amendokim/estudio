@@ -271,8 +271,8 @@ def register_source(studio,pid,payload):
     if rel.is_absolute() or ".." in rel.parts:
         raise HTTPException(422,"media_local precisa ser relativo à biblioteca do Estúdio.")
     file=(base/rel).resolve()
-    if not file.is_relative_to(base) or not file.is_file() or file.suffix.lower() not in
-      (".mp4",".mov",".webm",".mkv"):
+    if (not file.is_relative_to(base) or not file.is_file() or
+        file.suffix.lower() not in (".mp4",".mov",".webm",".mkv")):
         raise HTTPException(422,"Arquivo de vídeo não encontrado na biblioteca.")
     if _media_duration(studio,file)<4:
         raise HTTPException(422,"Arquivo deve conter vídeo válido com pelo menos 4 segundos.")
