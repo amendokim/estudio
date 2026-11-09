@@ -360,19 +360,27 @@ section.append(' ',archiveSearch);
 const youtubeDiscovery=document.createElement('button');youtubeDiscovery.textContent='Pesquisar YouTube mundial';
 youtubeDiscovery.onclick=async()=>{youtubeDiscovery.disabled=true;try{
  const data=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/discover');
- const sources=(data.candidates||[]).slice(0,20);
+ const scenes=(data.scene_matches||[]).filter(x=>(x.suggested_videos||[]).length);
  const holder=document.createElement('div');holder.style.cssText='padding:10px;border-left:3px solid #40b8ea;margin:12px 0';
- const header=document.createElement('strong');header.textContent='Pesquisa YouTube: '+sources.length+' referências exibidas (inclui vídeos sem licença confirmada)';
+ const header=document.createElement('strong');header.textContent='YouTube: '+(data.candidate_count||0)+' vídeos encontrados · '+(data.scenes_with_matches||0)+' falas com sugestões visuais';
  holder.append(header);
- for(const s of sources){
-  const entry=document.createElement('p');const link=document.createElement('a');
-  link.href=s.youtube_url||('https://www.youtube.com/watch?v='+s.video_id);
-  link.target='_blank';link.rel='noopener noreferrer';link.textContent=s.title||s.video_id;
-  entry.append(link,document.createTextNode(' — '+(s.channel||'')+' — licença: '+(s.license_filter||'não verificada')));
+ const detail=document.createElement('p');detail.textContent='Buscas por assunto e por cena. As imagens são ilustrativas, sem alegar que mostram o acontecimento.';
+ holder.append(detail);
+ for(const scene of scenes.slice(0,18)){
+  const entry=document.createElement('div');entry.style.margin='10px 0';
+  const title=document.createElement('strong');title.textContent='Cena '+scene.scene_number+' · '+scene.visual_intent+' — '+scene.narration_excerpt;
+  entry.append(title);
+  for(const s of (scene.suggested_videos||[]).slice(0,2)){
+   const line=document.createElement('p');line.style.margin='4px 0 0 12px';
+   const link=document.createElement('a');link.href=s.youtube_url;
+   link.target='_blank';link.rel='noopener noreferrer';link.textContent=s.title;
+   line.append(link,document.createTextNode(' · licença: '+s.license));
+   entry.append(line);
+  }
   holder.append(entry);
  }
  const info=document.createElement('small');
- info.textContent='Esses links são referências de pesquisa, não comprovantes de autorização de uso.';
+ info.textContent='Pesquisa não equivale a importação. Vídeos do YouTube só entram no MP4 se houver um arquivo utilizável com direitos de uso documentados.';
  holder.append(info);section.append(holder);
  }catch(e){alert('Busca YouTube: '+e.message)}finally{youtubeDiscovery.disabled=false}};
 section.append(' ',youtubeDiscovery);
