@@ -196,7 +196,8 @@ def _commons_candidates(project):
             terms = ('"Ponte da Amizade"', '"Ciudad del Este"',
                      '"Foz do Iguaçu"', '"Friendship Bridge"',
                      '"Puente de la Amistad"', '"Paraguay border"',
-                     '"Paraguay traffic"', '"Triple Frontera"')
+                     '"Paraguay traffic"', '"Triple Frontera"',
+                     '"Bolsonaro Paraguai ponte"', '"Ponte da Integração Brasil Paraguai"')
         else:
             scene_terms = [str(sc.get("query") or "").strip()
                            for sc in (project.get("scenes") or [])]
@@ -206,7 +207,7 @@ def _commons_candidates(project):
             terms = tuple(dict.fromkeys(x[:70] for x in termlist if x))
         with httpx.Client(timeout=16, follow_redirects=False) as client:
             derivative_calls=0
-            for search_term in terms[:8]:
+            for search_term in terms[:10]:
                 if not search_term:
                     continue
                 params = {
