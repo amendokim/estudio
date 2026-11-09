@@ -294,9 +294,11 @@ def use_sources(studio,pid):
 
 
 def montage_mix(montage):
-    """Count seconds of the FINAL shots (not long narration scenes)."""
+    """Audit final shots, including distinct-origin limits to avoid fake 70%."""
     total=youtube=stock=0.0
     shots=0
+    maxclip=0.0
+    sources=Counter()
     for scene in montage.get("timeline") or []:
         for shot in scene.get("shots") or []:
             seconds=float(shot.get("seconds") or 0)
@@ -305,21 +307,26 @@ def montage_mix(montage):
             shots+=1
             if is_youtube({**asset,"duration":seconds}):
                 youtube+=seconds
+                maxclip=max(maxclip,seconds)
+                origin=str(asset.get("source_page") or asset.get("media_url") or
+                           asset.get("media_local") or "")
+                sources[origin]+=seconds
             elif asset.get("media_provider") in ("pixabay","pexels"):
                 stock+=seconds
+    eligible=sum(min(seconds,MAX_SECONDS*MAX_SOURCE_USES) for seconds in sources.values())
+    required=max(1,__import__("math").ceil(total*.70/(MAX_SECONDS*MAX_SOURCE_USES))) if total else 0
     return {"total_seconds":round(total,2),
             "youtube_seconds":round(youtube,2),
             "stock_seconds":round(stock,2),
             "youtube_percent":round(youtube*100/total,1) if total else 0,
             "stock_percent":round(stock*100/total,1) if total else 0,
             "other_percent":round(max(0,total-youtube-stock)*100/total,1) if total else 0,
+            "effective_youtube_percent":round(eligible*100/total,1) if total else 0,
+            "unique_youtube_sources":len(sources),
+            "required_distinct_sources":required,
+            "source_diversity_ok":bool(len(sources)>=required),
             "shot_count":shots,
-            "max_youtube_seconds":max(
-                [float(shot.get("seconds") or 0)
-                 for scene in montage.get("timeline") or []
-                 for shot in scene.get("shots") or []
-                 if is_youtube({**(shot.get("asset") or {}),
-                                "duration":float(shot.get("seconds") or 0)})] or [0])}
+            "max_youtube_seconds":maxclip}
 
 def enrich_montage(studio,project,montage):
     """Use authorized Youtube-origin media for up to 70% of long-form microshots.
@@ -335,7 +342,14 @@ def enrich_montage(studio,project,montage):
     current=montage_mix(timeline)
     target_seconds=current["total_seconds"]*.70
     candidates=available_sources(studio,project)
-    counts=Counter()
+    counts=Counter(
+        str((shot.get("asset") or {}).get("source_page") or
+            (shot.get("asset") or {}).get("media_url") or
+            (shot.get("asset") or {}).get("media_local") or "")
+        for scene in timeline.get("timeline") or []
+        for shot in scene.get("shots") or []
+        if is_youtube({**(shot.get("asset") or {}),
+                       "duration":float(shot.get("seconds") or 0)}))
     indexed=[]
     for i,entry in enumerate(timeline.get("timeline") or []):
         scene=project["scenes"][i]
@@ -355,9 +369,9 @@ def enrich_montage(studio,project,montage):
     replaced=0
     for priority,rank,i,j,dur,options in indexed:
         if current["youtube_seconds"]>=target_seconds:break
-        options.sort(key=lambda item:(-item[0],counts[str(item[1].get("local") or item[1].get("url"))]))
+        options.sort(key=lambda item:(-item[0],counts[str(item[1].get("source_page") or item[1].get("local") or item[1].get("url"))]))
         for score,source in options:
-            key=str(source.get("local") or source.get("url"))
+            key=str(source.get("source_page") or source.get("local") or source.get("url"))
             if counts[key]>=MAX_SOURCE_USES:continue
             if source["category"]=="authorized":
                 clip_scene={"duration":dur}
@@ -368,7 +382,7 @@ def enrich_montage(studio,project,montage):
                     "source_page":source["source_page"],
                     "author":(source["author"]+" | autorização documentada")[:200]}
             else:
-                if counts[key]>=2:continue
+                if counts[key]>=1:continue
                 if not studio._approved_url(source["url"],"wikimedia"):continue
                 asset={"media_local":"","media_url":source["url"],
                     "media_provider":"wikimedia","media_kind":"video",
@@ -392,7 +406,8 @@ def enrich_montage(studio,project,montage):
     print("[youtube70] final montage source mix: "+json.dumps(metric),flush=True)
     # 1-2% tolerance for indivisible 5-8-second cuts; never falsify metrics.
     if (metric["youtube_percent"]<69.5 or metric["stock_percent"]<28.5
-        or metric["other_percent"]>3 or metric["max_youtube_seconds"]>MAX_SECONDS):
+        or metric["other_percent"]>3 or metric["max_youtube_seconds"]>MAX_SECONDS
+        or not metric["source_diversity_ok"] or metric["effective_youtube_percent"]<69.5):
         raise RuntimeError(
             "Plano 70% YouTube / 30% Pexels-Pixabay não atendido: "+
             str(metric["youtube_percent"])+"% de YouTube e "+
