@@ -23,6 +23,15 @@ def configured():
 def configuration():
     api_key = os.getenv("ELEVENLABS_API_KEY", "")
     voice = os.getenv("STUDIO_ELEVENLABS_VOICE_ID", "").strip()
+    if not voice and api_key:
+        # The curator selects a language-appropriate male Spanish narrator
+        # from voices actually available to the ElevenLabs account.
+        try:
+            import studio_voice_curator
+            voice = studio_voice_curator.resolve_id(
+                os.getenv("STUDIO_DATA_ROOT", "/app/data"))
+        except (ImportError,RuntimeError):
+            voice = ""
     model = os.getenv("STUDIO_ELEVENLABS_MODEL", "eleven_multilingual_v2").strip()
     if not api_key or not voice:
         raise RuntimeError("ElevenLabs ativado, mas API key/voice ID ausentes no Railway")
@@ -162,9 +171,17 @@ def install(studio):
 
     @studio.app.get("/api/voice/quality/config")
     def config():
+        selected = None
+        try:
+            import studio_voice_curator
+            selected = studio_voice_curator.record_path(
+                os.getenv("STUDIO_DATA_ROOT", "/app/data"))
+        except ImportError:
+            pass
         return {"provider":os.getenv("STUDIO_TTS_PROVIDER","edge"),
+                "selected_voice":selected.get("name") if selected else None,
                 "elevenlabs_ready":bool(os.getenv("ELEVENLABS_API_KEY") and
-                                        os.getenv("STUDIO_ELEVENLABS_VOICE_ID")),
+                                        (os.getenv("STUDIO_ELEVENLABS_VOICE_ID") or selected)),
                 "model":os.getenv("STUDIO_ELEVENLABS_MODEL","eleven_multilingual_v2"),
                 "character_cap":int(os.getenv("STUDIO_ELEVENLABS_MAX_CHARS_PER_JOB","1200")),
                 "voice_preview_requires_explicit_paid_opt_in":True,
