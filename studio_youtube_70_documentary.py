@@ -30,6 +30,7 @@ VERSION="youtube70-documentary-v1"
 TARGET=70
 MAX_SECONDS=10
 MAX_SEARCHES=3
+MAX_SOURCE_USES=2
 LOCK=threading.RLock()
 STOP={"video","youtube","paraguai","brasil","sobre","documentario",
       "para","esta","essas","todos","entre","porque","quem","quando",
@@ -54,14 +55,32 @@ def count(p):
     stock=sum(video_seconds(s) for s in scenes if s.get("media_provider") in
               ("pixabay","pexels"))
     original=sum(video_seconds(s) for s in scenes if s.get("media_provider")=="original")
+    source_seconds=Counter()
+    for scene in scenes:
+        if is_youtube(scene):
+            origin=str(scene.get("source_page") or scene.get("media_url") or
+                       scene.get("media_local") or "")
+            source_seconds[origin]+=video_seconds(scene)
+    unique_sources=len(source_seconds)
+    eligible_seconds=sum(min(seconds,MAX_SECONDS*MAX_SOURCE_USES)
+                         for seconds in source_seconds.values())
+    required_sources=max(1,__import__("math").ceil(total*.70/(MAX_SECONDS*MAX_SOURCE_USES))) if total else 0
     return {"project_id":p["id"],"target_youtube_percent":TARGET,
             "target_stock_percent":30,
             "actual_youtube_percent":round(100*y/total,1) if total else 0,
             "actual_stock_percent":round(100*stock/total,1) if total else 0,
             "actual_other_percent":round(100*(total-y-stock)/total,1) if total else 0,
             "youtube_seconds":round(y,1),"total_seconds":round(total,1),
-            "missing_youtube_seconds":round(max(0,total*.7-y),1),
-            "ready_for_70_30":bool(total and y/total>=.695 and stock/total>=.285 and (total-y-stock)/total<=.03),
+            "missing_youtube_seconds":round(max(0,total*.7-eligible_seconds),1),
+            "unique_youtube_sources":unique_sources,
+            "required_distinct_sources":required_sources,
+            "effective_youtube_seconds":round(eligible_seconds,1),
+            "effective_youtube_percent":round(100*eligible_seconds/total,1) if total else 0,
+            "source_diversity_ok":bool(unique_sources>=required_sources),
+            "ready_for_70_30":bool(total and y/total>=.695 and
+                    stock/total>=.285 and (total-y-stock)/total<=.03 and
+                    eligible_seconds/total>=.695 and
+                    unique_sources>=required_sources),
             "youtube_shots":sum(is_youtube(s) for s in scenes),
             "total_shots":len(scenes),"max_youtube_clip_seconds":MAX_SECONDS,
             "youtube_downloads_from_api":False,
@@ -228,7 +247,9 @@ def use_sources(studio,pid):
     scenes=p.get("scenes") or []
     total=sum(video_seconds(s) for s in scenes)
     youtube_seconds=sum(video_seconds(s) for s in scenes if is_youtube(s))
-    counts=Counter()
+    counts=Counter(
+        str(s.get("source_page") or s.get("media_url") or s.get("media_local") or "")
+        for s in scenes if is_youtube(s))
     changed=[]
     with LOCK:
         # Prefer highest topic/scene match and the least-used source.
@@ -239,8 +260,8 @@ def use_sources(studio,pid):
                                for x in sources),key=lambda z:z[0],reverse=True)
             for score,source in candidates:
                 if score<0:break
-                key=str(source.get("local") or source.get("url"))
-                if counts[key]>=8:continue
+                key=str(source.get("source_page") or source.get("local") or source.get("url"))
+                if counts[key]>=MAX_SOURCE_USES:continue
                 if source["category"]=="authorized":
                     local=_cut(studio,pid,source,scene,counts[key])
                     if not local:continue
@@ -254,7 +275,7 @@ def use_sources(studio,pid):
                     url=source["url"]
                     # Independently hosted Commons asset; no YouTube stream.
                     if not studio._approved_url(url,"wikimedia"):continue
-                    if counts[key]>=2:continue
+                    if counts[key]>=1:continue
                 with studio.db() as db:
                     db.execute("""UPDATE scenes SET media_url=?,media_local=?,
                        media_kind='video',media_provider=?,source_page=?,author=?,thumb=''
@@ -337,7 +358,7 @@ def enrich_montage(studio,project,montage):
         options.sort(key=lambda item:(-item[0],counts[str(item[1].get("local") or item[1].get("url"))]))
         for score,source in options:
             key=str(source.get("local") or source.get("url"))
-            if counts[key]>=8:continue
+            if counts[key]>=MAX_SOURCE_USES:continue
             if source["category"]=="authorized":
                 clip_scene={"duration":dur}
                 local=_cut(studio,project["id"],source,clip_scene,counts[key])
@@ -503,6 +524,14 @@ def self_test():
     ]}]}
     report=montage_mix(mock)
     assert report["stock_percent"]==100.0 and report["youtube_percent"]==0.0
+    p={"id":"smoke","scenes":[{"media_kind":"video","media_provider":"wikimedia",
+        "media_url":"https://upload.wikimedia.org/test.webm",
+        "source_page":"https://commons.wikimedia.org/wiki/File:Test",
+        "author":"originalmente publicado no YouTube","duration":7} for _ in range(8)]}
+    audited=count(p)
+    assert audited["actual_youtube_percent"]==100
+    assert audited["effective_youtube_percent"]<30
+    assert not audited["source_diversity_ok"]
     print("[youtube70] SELF-TEST PASS search/rights/70-30/caps and long-form montage",flush=True)
 
 if __name__=="__main__":
