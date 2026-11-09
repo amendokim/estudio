@@ -200,9 +200,11 @@ def generate_script(studio, topic: str, minutes: int, ratio: str, title: str | N
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('Para escrever roteiros automaticamente, configure GEMINI_API_KEY no Railway.')
     voices = {'pt':'pt-BR-AntonioNeural', 'es':'es-ES-AlvaroNeural',
-              'en':'en-US-GuyNeural'}
-    outputs = {'pt':'português brasileiro','es':'espanhol natural',
-               'en':'inglês natural'}
+              'en':'en-US-GuyNeural', 'fr':'fr-FR-HenriNeural',
+              'de':'de-DE-ConradNeural'}
+    outputs = {'pt':'português brasileiro','es':'espanhol natural da Espanha',
+               'en':'inglês natural', 'fr':'francês natural da França',
+               'de':'alemão natural da Alemanha'}
     if language not in voices:
         raise RuntimeError('Idioma de canal não suportado')
     output_lang = outputs[language]
