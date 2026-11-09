@@ -122,7 +122,7 @@ def clip_from_commons(page, info, project):
     if info.get("mime") not in ("video/webm", "video/mp4", "video/ogg"):
         return None
     size = int(info.get("size") or 0)
-    if not (1000 < size <= 35 * 1024 * 1024):
+    if not (1000 < size <= 1900 * 1024 * 1024):
         return None
     url = info.get("url") or ""
     if not authorized_media_url(url):
@@ -139,7 +139,50 @@ def clip_from_commons(page, info, project):
     author = plain(md.get("Artist", {}).get("value", ""))[:120] or "Autor identificado no Wikimedia Commons"
     return {"title": title, "url": url, "source_page": page_url, "license": license_name,
             "author": author, "thumb": info.get("thumburl") or "",
-            "category": "creative_commons_public_domain", "evidence": page_url}
+            "category": "creative_commons_public_domain", "evidence": page_url,
+            "oversized_original": size > 35 * 1024 * 1024}
+
+
+def _small_commons_derivative(client, title):
+    """Use independently hosted Commons 240p/360p/480p transcodes when
+    the original licensed video is too large. URLs come from videoinfo,
+    never from YouTube streams or manually constructed download links.
+    """
+    try:
+        response=client.get(COMMONS_API,
+            params={"action":"query","format":"json","prop":"videoinfo",
+                    "titles":title,"viprop":"derivatives"},timeout=12)
+        response.raise_for_status()
+        pages=(response.json().get("query",{}).get("pages") or {}).values()
+        options=[]
+        for page in pages:
+            for info in page.get("videoinfo") or []:
+                for item in info.get("derivatives") or []:
+                    url=str(item.get("src") or item.get("url") or "")
+                    if not authorized_media_url(url):
+                        continue
+                    if not (url.endswith(".webm") or url.endswith(".mov") or
+                            url.endswith(".mp4") or url.endswith(".ogv")):
+                        continue
+                    height=int(item.get("height") or 0)
+                    if not height:
+                        detected=re.search(r"\.(\d{3,4})p\.",url)
+                        height=int(detected.group(1)) if detected else 0
+                    if height not in (240,360,480):
+                        continue
+                    options.append((abs(height-360),url))
+        for _,url in sorted(options):
+            try:
+                response=client.head(url,timeout=9)
+                response.raise_for_status()
+                size=int(response.headers.get("content-length") or 0)
+                if 1000<size<=35*1024*1024:
+                    return url
+            except (httpx.HTTPError,ValueError):
+                continue
+    except (httpx.HTTPError,ValueError,KeyError,TypeError):
+        pass
+    return None
 
 
 def _commons_candidates(project):
@@ -162,6 +205,7 @@ def _commons_candidates(project):
             termlist += scene_terms[::max(1,len(scene_terms)//5)]
             terms = tuple(dict.fromkeys(x[:70] for x in termlist if x))
         with httpx.Client(timeout=16, follow_redirects=False) as client:
+            derivative_calls=0
             for search_term in terms[:8]:
                 if not search_term:
                     continue
@@ -182,8 +226,19 @@ def _commons_candidates(project):
                     for page in pages:
                         for info in page.get("imageinfo") or ():
                             clip = clip_from_commons(page, info, project)
-                            if clip:
-                                result.append(clip)
+                            if not clip:
+                                continue
+                            if clip.get("oversized_original"):
+                                if derivative_calls>=10:
+                                    continue
+                                derivative_calls+=1
+                                smaller=_small_commons_derivative(client,page.get("title") or "")
+                                if not smaller:
+                                    continue
+                                clip["url"]=smaller
+                                clip["transcoded_from_commons"]=True
+                            clip.pop("oversized_original",None)
+                            result.append(clip)
                 except (httpx.HTTPError, ValueError, KeyError, TypeError):
                     continue
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
