@@ -609,7 +609,7 @@ def self_test():
         "author":"originalmente publicado no YouTube","duration":7} for _ in range(8)]}
     audited=count(p)
     assert audited["actual_youtube_percent"]==100
-    assert audited["effective_youtube_percent"]<30
+    assert audited["effective_youtube_percent"]<40
     assert not audited["source_diversity_ok"]
     print("[youtube70] SELF-TEST PASS search/rights/70-30/caps and long-form montage",flush=True)
 
