@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 
 import studio_youtube_policy as policy
@@ -444,6 +444,47 @@ def register_source(studio,pid,payload):
         tmp.replace(file)
     return {"registered":True,"youtube_url":yt,"media_local":str(rel)}
 
+async def upload_source(studio,pid,video,youtube_url,title,author,evidence_url,rights_confirmed):
+    """Store a user-provided source file; never extract video from YouTube.
+    File and rights metadata are validated before the source is usable.
+    """
+    studio.get_project(pid)
+    if not rights_confirmed:
+        raise HTTPException(422,"Informe que você possui direitos ou autorização de reutilização.")
+    try:policy.safe_video_reference(youtube_url)
+    except ValueError as exc:raise HTTPException(422,str(exc))
+    extension=Path(video.filename or "").suffix.lower()
+    if extension not in (".mp4",".mov",".webm",".mkv"):
+        raise HTTPException(422,"Formato não suportado: use MP4, MOV, WEBM ou MKV.")
+    dest_dir=studio.project_dir(pid)/"uploads"/"youtube_sources"
+    dest_dir.mkdir(parents=True,exist_ok=True)
+    dest=dest_dir/(hashlib.sha256(os.urandom(32)).hexdigest()[:24]+extension)
+    limit=150*1024*1024
+    received=0
+    try:
+        with dest.open("wb") as target:
+            while True:
+                chunk=await video.read(1024*1024)
+                if not chunk:break
+                received+=len(chunk)
+                if received>limit:raise HTTPException(413,"Arquivo excede 150 MB.")
+                target.write(chunk)
+        if received<5000 or _media_duration(studio,dest)<4:
+            raise HTTPException(422,"Não foi possível confirmar um arquivo de vídeo válido.")
+        rel=str(dest.resolve().relative_to(Path(studio.MEDIA).resolve()))
+        saved=register_source(studio,pid,RegisterSource(
+            youtube_url=youtube_url,media_local=rel,
+            evidence_url=evidence_url,title=title,author=author,
+            description="Arquivo enviado pelo usuário; origem YouTube documentada",
+            rights_confirmed=True))
+        return {**saved,"bytes":received,
+                "note":"Arquivo disponível para cortes de até 10s; busca oficial não baixa vídeos."}
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    finally:
+        await video.close()
+
 def install(studio):
     storage(studio)
     previous_find=studio._auto_find_media
@@ -508,6 +549,29 @@ def install(studio):
     @studio.app.post("/api/youtube70/projects/{pid}/register-source")
     def register(pid:str,body:RegisterSource):
         return register_source(studio,pid,body)
+
+    @studio.app.post("/api/youtube70/projects/{pid}/upload")
+    async def upload(pid:str,
+            video:UploadFile=File(...),
+            youtube_url:str=Form(...),
+            title:str=Form(...),
+            author:str=Form(""),
+            evidence_url:str=Form(...),
+            rights_confirmed:bool=Form(False)):
+        return await upload_source(studio,pid,video,youtube_url,title,author,
+                                   evidence_url,rights_confirmed)
+
+    @studio.app.get("/api/youtube70/projects/{pid}/sources")
+    def sources(pid:str):
+        p=studio.get_project(pid)
+        pool=available_sources(studio,p)
+        return {"project_id":pid,"available_source_count":len(pool),
+                "sources":[{"category":x["category"],
+                            "title":x["title"],"source_page":x["source_page"],
+                            "rights_evidence":x["evidence"]}
+                           for x in pool[:60]],
+                "mix":count(p),
+                "note":"Arquivos do YouTube não são transferidos pela API oficial."}
 
 def self_test():
     src={"title":"Paraguai Ciudad del Este bridge traffic","description":"Fronteira"}
