@@ -26,10 +26,10 @@ from pydantic import BaseModel, Field
 
 import studio_youtube_policy as policy
 
-VERSION="youtube70-documentary-v1"
+VERSION="youtube70-semantic-search-v2"
 TARGET=70
 MAX_SECONDS=10
-MAX_SEARCHES=3
+MAX_SEARCHES=8
 MAX_SOURCE_USES=2
 LOCK=threading.RLock()
 STOP={"video","youtube","paraguai","brasil","sobre","documentario",
@@ -109,78 +109,217 @@ def storage(studio):
            created_at TEXT NOT NULL,
            PRIMARY KEY(project_id,video_id))""")
 
+# Visual coherence is local to the phrase. A generic illustrative clip can be
+# useful without claiming to depict the actual event or named person.
+VISUAL_INTENTS=(
+ ("fronteira",("fronteira","ponte","foz do","ciudad del este","border","puente","aduana","travessia"),"Ciudad del Este Foz do Iguacu border crossing bridge traffic"),
+ ("comercio",("comercio","loja","shopping","mercado","supermercado","comerciante","vendas","precos","preco","compras"),"Paraguay Ciudad del Este market supermarkets businesses streets"),
+ ("financas",("banco","bank","dinheiro","cartao","pagamento","conta","investimento","financeiro","economia","custo de vida","impostos"),"Paraguay business finance bank money economy people"),
+ ("mudanca",("mudanca","morar","residencia","imigracao","moradores","migracao","retorno","voltando","familia","packing"),"Brazilian people moving Paraguay family residence immigration"),
+ ("politica",("bolsonaro","lula","presidente","governo","congresso","eleicao","politica","politico"),"Paraguay Brazil government politics news press conference"),
+ ("trabalho",("trabalho","emprego","funcionario","empresa","escritorio","empreendedor","work"),"Paraguay people working business offices employees"),
+ ("cidade",("assuncao","asuncion","ruas","cidade","bairro","trafego","transito","estrada"),"Paraguay Asuncion Ciudad del Este city streets daily life"),
+ ("checagem",("viral","video","gravacao","redes sociais","noticia","boato","prova","desinformacao"),"fact checking news video social media journalism verification"),
+)
+
+def _visual_intent(scene):
+    speech=policy.normalized(str(scene.get("text") or "")+" "+str(scene.get("query") or ""))
+    scored=[(sum(1 for tag in tags if tag in speech),name,query)
+            for name,tags,query in VISUAL_INTENTS]
+    best=max(scored,key=lambda x:x[0])
+    return (best[1],best[2]) if best[0]>0 else ("broll",str(scene.get("query") or "").strip())
+
+def _clean_search(s):
+    q=str(s or "")
+    q=re.sub(r"(?i)\b(teste\s*\d+/\d+|document[aá]rio|cenas?\s*\d+|vídeo\s*de\s*\d+\s*minutos?)\b"," ",q)
+    q=re.sub(r"\s+"," ",q).strip(" ,;-")
+    return q[:90]
+
+def visual_search_plan(project):
+    """Up to eight distinct subject/visual intent searches for the whole script.
+
+    The search is inexpensive relative to one query per cut, but covers actual
+    speaking topics across the opening, middle and ending.
+    """
+    scenes=project.get("scenes") or []
+    options=[]
+    seen=set()
+    def add(name,query):
+        q=_clean_search(query)
+        if not q: return
+        signature=q.casefold()
+        if signature in seen:return
+        seen.add(signature)
+        options.append({"intent":name,"query":q})
+    named_title=_clean_search(project.get("title") or "")
+    if named_title:add("assunto",named_title)
+    intent_seen=set()
+    # Find diverse actual scene intents. Do not require footage of the real event.
+    for scene in scenes:
+        name,query=_visual_intent(scene)
+        if name!="broll" and name not in intent_seen:
+            intent_seen.add(name)
+            add(name,query)
+    # Fill gaps with the author's visual phrases across the whole runtime.
+    if scenes:
+        picks=[scenes[min(len(scenes)-1,round(i*(len(scenes)-1)/max(1,MAX_SEARCHES-2)))]
+               for i in range(max(1,MAX_SEARCHES-1))]
+        for sc in picks:
+            query=_clean_search(sc.get("query") or "")
+            if len(query.split())>=2:add("fala",query)
+    # If title is long and not visual, named location is better than the whole title.
+    return options[:MAX_SEARCHES]
+
+SYNONYMS=(
+ {"paraguai","paraguay","paraguayan"},
+ {"brasil","brazil","brazilian","brasileiro","brasileiros","brasileno"},
+ {"fronteira","border","frontera","ponte","puente","bridge","crossing"},
+ {"preco","precos","price","prices","cost","custo","custos"},
+ {"mercado","market","supermarket","supermercado","compras","shopping"},
+ {"dinheiro","money","finance","bank","banco","financial"},
+ {"politica","politics","government","governo","presidente","president"},
+ {"mudanca","moving","migration","migracao","immigration","imigracao"},
+ {"trabalho","work","working","job","empleo","empleados"},
+ {"cidade","city","ciudad","street","rua","calle"},
+)
+def _semantic_words(value):
+    result=set(re.findall(r"[a-z0-9]{3,}",policy.normalized(value or "")))
+    result-=STOP
+    for group in SYNONYMS:
+        if result & group:result|=group
+    return result
+
+def _video_match(scene,video):
+    spoken=str(scene.get("text") or "")
+    visual=str(scene.get("query") or "")
+    title=str(video.get("title") or "")
+    matched=_semantic_words(visual) & _semantic_words(title)
+    more=_semantic_words(spoken) & _semantic_words(title)
+    intent,focused=_visual_intent(scene)
+    concept=_semantic_words(focused) & _semantic_words(title)
+    # Query tokens usually contain concrete objects/places; give them priority.
+    score=5*len(matched)+2*len(more)+len(concept)
+    return max(0,score)
+
+def scene_matches(project, candidates, per_scene=3):
+    result=[]
+    used=Counter()
+    source_list=list(candidates)
+    for i,scene in enumerate(project.get("scenes") or []):
+        ranked=sorted(source_list,key=lambda x:(
+            -_video_match(scene,x),used[x["video_id"]],x["video_id"]))
+        picks=[]
+        for video in ranked:
+            score=_video_match(scene,video)
+            if score<3:continue
+            if used[video["video_id"]]>=2:continue
+            picks.append({"video_id":video["video_id"],
+                          "youtube_url":video.get("youtube_url") or
+                              ("https://www.youtube.com/watch?v="+video["video_id"]),
+                          "title":video["title"],
+                          "license":video.get("license_filter") or "unknown",
+                          "match_score":score,
+                          "reference_only":True})
+            used[video["video_id"]]+=1
+            if len(picks)>=per_scene:break
+        intent,_=_visual_intent(scene)
+        result.append({"scene_number":i+1,"visual_intent":intent,
+                       "narration_excerpt":str(scene.get("text") or "")[:180],
+                       "search_hint":str(scene.get("query") or "")[:120],
+                       "suggested_videos":picks})
+    return result
+
+def _cached_candidates(studio,pid):
+    with studio.db() as db:
+        rows=[dict(x) for x in db.execute(
+            "SELECT * FROM documentary_youtube_research WHERE project_id=? "
+            "ORDER BY created_at DESC LIMIT 240",(pid,)).fetchall()]
+    for row in rows:
+        row["youtube_url"]="https://www.youtube.com/watch?v="+row["video_id"]
+        row["usable_for_render"]=False
+    return rows
+
 def discover(studio,pid,refresh=False):
-    p=studio.get_project(pid)
+    project=studio.get_project(pid)
     key=os.getenv("YOUTUBE_DATA_API_KEY","").strip()
     if not key:raise HTTPException(409,"Falta configurar YOUTUBE_DATA_API_KEY.")
-    with studio.db() as db:
-        old=[dict(x) for x in db.execute(
-            "SELECT * FROM documentary_youtube_research WHERE project_id=? "
-            "ORDER BY created_at DESC LIMIT 60",(pid,)).fetchall()]
-    if old and not refresh:
-        for x in old:
-            x["youtube_url"]="https://www.youtube.com/watch?v="+x["video_id"]
-            x["usable_for_render"]=False
-        return {"project_id":pid,"cached":True,"candidates":old,
-                "note":"Referências não são arquivos e não são consideradas licenciadas."}
-    # Cap API usage: explicit refresh can requery, never called in a continuous loop.
-    topic=str(p.get("title") or "")
-    scenes=p.get("scenes") or []
-    qs=[]
-    for value in [topic," ".join((s.get("query") or "") for s in scenes[:6]),
-                  " ".join((s.get("query") or "") for s in scenes[-6:])]:
-        words=re.findall(r"[^,\n]{1,70}",value)
-        q=" ".join(words[:1]).strip()[:85]
-        if q and q not in qs:qs.append(q)
+    cached=_cached_candidates(studio,pid)
+    upgraded=any(r.get("query","").startswith("semantic2:") for r in cached)
+    plan=visual_search_plan(project)
+    if cached and upgraded and not refresh:
+        matches=scene_matches(project,cached)
+        return {"project_id":pid,"cached":True,"search_plan":plan,
+                "candidate_count":len(cached),"candidates":cached,
+                "scene_matches":matches,
+                "scenes_with_matches":sum(bool(x["suggested_videos"]) for x in matches),
+                "api_queries":0,
+                "note":"Vídeos selecionados pelo conteúdo falado, inclusive imagens ilustrativas. "
+                       "Resultados são referências, não arquivos para montagem."}
     results={}
+    errors=[]
     with httpx.Client(timeout=18,follow_redirects=False) as client:
-        for q in qs[:MAX_SEARCHES]:
+        for plan_entry in plan:
+            q=plan_entry["query"]
             try:
                 response=client.get("https://www.googleapis.com/youtube/v3/search",
-                    params={"part":"snippet","type":"video","maxResults":20,
+                    params={"part":"snippet","type":"video","maxResults":25,
                             "q":q,"key":key,"safeSearch":"moderate",
-                            "order":"relevance"})
+                            "order":"relevance","videoEmbeddable":"true"})
                 response.raise_for_status()
                 for v in response.json().get("items") or []:
                     vid=str((v.get("id") or {}).get("videoId") or "")
                     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",vid):continue
                     sn=v.get("snippet") or {}
-                    results[vid]={"project_id":pid,"video_id":vid,
-                       "title":str(sn.get("title") or "")[:200],
-                       "channel":str(sn.get("channelTitle") or "")[:100],
-                       "license_filter":"any_unverified","query":q,
-                       "created_at":datetime.now(timezone.utc).isoformat(),
-                       "youtube_url":"https://www.youtube.com/watch?v="+vid,
-                       "usable_for_render":False}
-            except (httpx.HTTPError,ValueError):
-                continue
-    # videos.list reports the license selected by the uploader. This metadata
-    # is not a permit to download footage through the YouTube API.
+                    if vid not in results:
+                        results[vid]={"project_id":pid,"video_id":vid,
+                           "title":str(sn.get("title") or "")[:200],
+                           "channel":str(sn.get("channelTitle") or "")[:100],
+                           "description":str(sn.get("description") or "")[:300],
+                           "license_filter":"unverified",
+                           "query":"semantic2:"+q,
+                           "created_at":datetime.now(timezone.utc).isoformat(),
+                           "youtube_url":"https://www.youtube.com/watch?v="+vid,
+                           "usable_for_render":False}
+            except (httpx.HTTPStatusError,httpx.RequestError,ValueError) as exc:
+                errors.append({"query":q,"error":type(exc).__name__})
+    # Read the uploader's declared license, not a promise of downloading rights.
     if results:
-        try:
-            with httpx.Client(timeout=14,follow_redirects=False) as client:
-                ids=",".join(list(results)[:50])
-                status=client.get("https://www.googleapis.com/youtube/v3/videos",
-                    params={"part":"status","id":ids,"key":key})
-                status.raise_for_status()
-                for entry in status.json().get("items") or []:
-                    vid=entry.get("id")
-                    if vid in results:
-                        license_name=str((entry.get("status") or {}).get("license") or "")
-                        results[vid]["license_filter"]=license_name or "unknown"
-        except (httpx.HTTPError,ValueError):
-            pass
-    with studio.db() as db:
-        for row in results.values():
-            db.execute("""INSERT OR REPLACE INTO documentary_youtube_research
-               (project_id,video_id,title,channel,license_filter,query,created_at)
-               VALUES(?,?,?,?,?,?,?)""",
-               (row["project_id"],row["video_id"],row["title"],row["channel"],
-                row["license_filter"],row["query"],row["created_at"]))
-    return {"project_id":pid,"cached":False,"candidates":list(results.values()),
-            "api_queries":min(MAX_SEARCHES,len(qs)),
-            "note":"Resultados incluem vídeos sob licença padrão para pesquisa. "
-                   "O sistema não baixa nem utiliza essas obras sem base de uso comprovada."}
+        with httpx.Client(timeout=15,follow_redirects=False) as client:
+            ids=list(results)
+            for start in range(0,len(ids),50):
+                try:
+                    response=client.get("https://www.googleapis.com/youtube/v3/videos",
+                        params={"part":"status","id":",".join(ids[start:start+50]),"key":key})
+                    response.raise_for_status()
+                    for entry in response.json().get("items") or []:
+                        vid=entry.get("id")
+                        if vid in results:
+                            results[vid]["license_filter"]=str(
+                               (entry.get("status") or {}).get("license") or "unknown")
+                except (httpx.HTTPError,ValueError):
+                    continue
+    # Remove the old, generic results only when new results are available.
+    if results:
+        with studio.db() as db:
+            db.execute("DELETE FROM documentary_youtube_research WHERE project_id=?",(pid,))
+            for row in results.values():
+                db.execute("""INSERT OR REPLACE INTO documentary_youtube_research
+                   (project_id,video_id,title,channel,license_filter,query,created_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                   (row["project_id"],row["video_id"],row["title"],row["channel"],
+                    row["license_filter"],row["query"],row["created_at"]))
+    refs=list(results.values()) if results else cached
+    matches=scene_matches(project,refs)
+    return {"project_id":pid,"cached":False,
+            "search_plan":plan,
+            "candidate_count":len(refs),"candidates":refs,
+            "scene_matches":matches,
+            "scenes_with_matches":sum(bool(x["suggested_videos"]) for x in matches),
+            "api_queries":len(plan),
+            "errors":errors,
+            "note":"Busca por assunto e por fala, incluindo imagens de apoio ilustrativas. "
+                   "YouTube API não fornece arquivo para FFmpeg; cada referência precisa de "
+                   "fonte de arquivo utilizável antes de entrar no vídeo."}
 
 def available_sources(studio,project):
     sources=[]
@@ -611,6 +750,17 @@ def self_test():
     assert audited["actual_youtube_percent"]==100
     assert audited["effective_youtube_percent"]<40
     assert not audited["source_diversity_ok"]
+    visual=visual_search_plan({"title":"Teste 70/30 — Mudança para Paraguai","scenes":[
+        {"text":"Custo de vida no mercado","query":"Paraguay supermarket prices"},
+        {"text":"Famílias se mudando de país","query":"moving family boxes"},
+        {"text":"Política e decisões de governo","query":"government press conference"},
+        {"text":"Trânsito na Ponte da Amizade","query":"Ciudad del Este bridge cars"}]})
+    assert 4<=len(visual)<=MAX_SEARCHES,visual
+    example={"scenes":[{"text":"Compre comida no supermercado","query":"supermarket prices"}]}
+    match=scene_matches(example,[{"video_id":"dQw4w9WgXcQ",
+        "title":"Supermarket prices and grocery shopping Paraguay",
+        "license_filter":"youtube"}])
+    assert len(match)==1 and len(match[0]["suggested_videos"])==1,match
     print("[youtube70] SELF-TEST PASS search/rights/70-30/caps and long-form montage",flush=True)
 
 if __name__=="__main__":
