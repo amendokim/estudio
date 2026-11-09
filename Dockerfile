@@ -74,6 +74,8 @@ COPY studio_voice_curator.py /app/studio_voice_curator.py
 RUN python -m py_compile /app/studio_voice_curator.py && python /app/studio_voice_curator.py
 COPY studio_free_voice_test.py /app/studio_free_voice_test.py
 RUN python -m py_compile /app/studio_free_voice_test.py && python /app/studio_free_voice_test.py
+COPY studio_google_wavenet.py /app/studio_google_wavenet.py
+RUN python -m py_compile /app/studio_google_wavenet.py && python /app/studio_google_wavenet.py
 COPY studio_dynamic_preview_pilot.py /app/studio_dynamic_preview_pilot.py
 RUN python -m py_compile /app/studio_dynamic_preview_pilot.py && python /app/studio_dynamic_preview_pilot.py
 EXPOSE 8000
