@@ -319,7 +319,7 @@ DASHBOARD = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8">
 <textarea id="topics" rows="5" placeholder="História da Ponte da Amizade\nO surgimento das grandes cidades"></textarea>
 <label>Minutos por documentário <input type="number" id="minutes" min="1" max="60" value="30"></label>
 <button id="write">Gerar roteiros do lote</button></div>
-<div class="panel"><h2>Projetos existentes</h2><p><small>Arquivos de origem YouTube somente quando relevantes e com licença comprovada — sem meta percentual. Bancos de vídeo e gráficos originais são priorizados quando melhores para o roteiro.</small></p><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
+<div class="panel"><h2>Projetos existentes</h2><p><small>Documentários: meta 70% de cenas originadas do YouTube / 30% Pixabay-Pexels, com cortes até 10 segundos. A pesquisa mostra vídeos com diferentes licenças, mas somente arquivos utilizáveis e documentados entram na montagem. Sem fontes suficientes, o Estúdio não inventa o percentual.</small></p><p><small>Roteiros criados no ChatGPT também aparecem aqui. Validação não gera vídeo nem chama IA paga.</small></p><div id="projects"></div></div>
 <div class="panel"><h2>Fila de produção</h2><button id="refresh">Atualizar</button><div id="jobs"></div></div>
 <script>
 async function req(url,init){const response=await fetch(url,init);const data=await response.json();if(!response.ok)throw Error(data.detail||JSON.stringify(data));return data;}
@@ -337,12 +337,12 @@ const direction=document.createElement('a');
 direction.href='/api/editorial/strategy/projects/'+encodeURIComponent(p.id);
 direction.textContent='Origem de mídia e ritmo';direction.target='_blank';
 direction.rel='noopener noreferrer';section.append(' · ',direction);
-const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Fontes do YouTube';archival.onclick=async()=>{try{const data=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));alert('Arquivo de origem YouTube é opcional: somente quando o tema, a cena e os direitos de uso estão comprovados. Participação atual: '+data.actual_percent+'%. Sem meta percentual obrigatória.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
+const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Ver proporção 70/30';archival.onclick=async()=>{try{const data=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/mix');alert('META: 70% YouTube, 30% Pixabay/Pexels.\\nATUAL: '+data.actual_youtube_percent+'% YouTube, '+data.actual_stock_percent+'% bancos, '+data.actual_other_percent+'% outros.\\nFaltam: '+data.missing_youtube_seconds+' segundos de YouTube verificado.\\nPronto para 70/30: '+(data.ready_for_70_30?'SIM':'NÃO')+'\\nCortes de até 10 segundos.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
 const autoPolicy=document.createElement('button');autoPolicy.textContent='Regra automática: 10 s';
 autoPolicy.onclick=async()=>{try{
  const rules=await req('/api/youtube-policy');
  const summary=await req('/api/youtube-policy/projects/'+encodeURIComponent(p.id));
- alert('Escolha por relevância e direitos comprovados. Sem meta fixa de YouTube. Arquivo verificado: '+summary.actual_percent+'%. Limite editorial de trecho: '+rules.max_youtube_clip_seconds+' segundos. Essa duração não dispensa licença.');
+ alert('Meta 70% YouTube / 30% bancos. Limite: '+rules.max_youtube_clip_seconds+' segundos por trecho, sem dispensar licença. YouTube verificado: '+summary.actual_percent+'%.');
 }catch(e){alert(e.message)}};
 section.append(' ',autoPolicy);
 const archiveSearch=document.createElement('button');archiveSearch.textContent='Buscar acervo licenciado';
@@ -357,6 +357,25 @@ archiveSearch.onclick=async()=>{archiveSearch.disabled=true;
  finally{archiveSearch.disabled=false}
 };
 section.append(' ',archiveSearch);
+const youtubeDiscovery=document.createElement('button');youtubeDiscovery.textContent='Pesquisar YouTube mundial';
+youtubeDiscovery.onclick=async()=>{youtubeDiscovery.disabled=true;try{
+ const data=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/discover');
+ const sources=(data.candidates||[]).slice(0,20);
+ const holder=document.createElement('div');holder.style.cssText='padding:10px;border-left:3px solid #40b8ea;margin:12px 0';
+ const header=document.createElement('strong');header.textContent='Pesquisa YouTube: '+sources.length+' referências exibidas (inclui vídeos sem licença confirmada)';
+ holder.append(header);
+ for(const s of sources){
+  const entry=document.createElement('p');const link=document.createElement('a');
+  link.href=s.youtube_url||('https://www.youtube.com/watch?v='+s.video_id);
+  link.target='_blank';link.rel='noopener noreferrer';link.textContent=s.title||s.video_id;
+  entry.append(link,document.createTextNode(' — '+(s.channel||'')+' — licença: '+(s.license_filter||'não verificada')));
+  holder.append(entry);
+ }
+ const info=document.createElement('small');
+ info.textContent='Esses links são referências de pesquisa, não comprovantes de autorização de uso.';
+ holder.append(info);section.append(holder);
+ }catch(e){alert('Busca YouTube: '+e.message)}finally{youtubeDiscovery.disabled=false}};
+section.append(' ',youtubeDiscovery);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
 const capcut=document.createElement('button');capcut.textContent='Preparar para CapCut';
