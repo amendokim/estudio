@@ -26,10 +26,10 @@ from pydantic import BaseModel, Field
 
 import studio_youtube_policy as policy
 
-VERSION="youtube70-semantic-search-v2"
+VERSION="youtube70-semantic-search-v3"
 TARGET=70
 MAX_SECONDS=10
-MAX_SEARCHES=8
+MAX_SEARCHES=16
 MAX_SOURCE_USES=2
 LOCK=threading.RLock()
 STOP={"video","youtube","paraguai","brasil","sobre","documentario",
@@ -136,38 +136,51 @@ def _clean_search(s):
     return q[:90]
 
 def visual_search_plan(project):
-    """Up to eight distinct subject/visual intent searches for the whole script.
+    """Bounded searches driven by the narration across the full timeline.
 
-    The search is inexpensive relative to one query per cut, but covers actual
-    speaking topics across the opening, middle and ending.
+    One generic channel/title search is insufficient for a documentary:
+    cover first, middle and last speaking scenes before adding broad B-roll
+    topics. 16 searches cost roughly 1,600 YouTube Data API quota units on a
+    cold project; successful results are cached and reused on later calls.
     """
     scenes=project.get("scenes") or []
     options=[]
     seen=set()
     def add(name,query):
         q=_clean_search(query)
-        if not q: return
+        if not q:return
         signature=q.casefold()
         if signature in seen:return
         seen.add(signature)
         options.append({"intent":name,"query":q})
-    named_title=_clean_search(project.get("title") or "")
-    if named_title:add("assunto",named_title)
-    intent_seen=set()
-    # Find diverse actual scene intents. Do not require footage of the real event.
+    title=_clean_search(project.get("title") or "")
+    if title:add("assunto",title)
+
+    # Breadth-first timeline sampling prevents long scripts from searching
+    # only the introduction and forgetting the end of the video.
+    pending=[(0,len(scenes)-1)] if scenes else []
+    order=[]
+    while pending:
+        lo,hi=pending.pop(0)
+        if lo>hi:continue
+        mid=(lo+hi)//2
+        order.append(mid)
+        pending.append((lo,mid-1))
+        pending.append((mid+1,hi))
+    for index in order:
+        query=_clean_search(scenes[index].get("query") or "")
+        if len(query.split())>=2:
+            add("cena "+str(index+1),query)
+        if len(options)>=MAX_SEARCHES:break
+
+    # Retain descriptive, illustrative searches when scene phrases are vague.
+    used_intents=set()
     for scene in scenes:
         name,query=_visual_intent(scene)
-        if name!="broll" and name not in intent_seen:
-            intent_seen.add(name)
+        if name!="broll" and name not in used_intents:
+            used_intents.add(name)
             add(name,query)
-    # Fill gaps with the author's visual phrases across the whole runtime.
-    if scenes:
-        picks=[scenes[min(len(scenes)-1,round(i*(len(scenes)-1)/max(1,MAX_SEARCHES-2)))]
-               for i in range(max(1,MAX_SEARCHES-1))]
-        for sc in picks:
-            query=_clean_search(sc.get("query") or "")
-            if len(query.split())>=2:add("fala",query)
-    # If title is long and not visual, named location is better than the whole title.
+        if len(options)>=MAX_SEARCHES:break
     return options[:MAX_SEARCHES]
 
 SYNONYMS=(
@@ -244,7 +257,7 @@ def discover(studio,pid,refresh=False):
     key=os.getenv("YOUTUBE_DATA_API_KEY","").strip()
     if not key:raise HTTPException(409,"Falta configurar YOUTUBE_DATA_API_KEY.")
     cached=_cached_candidates(studio,pid)
-    upgraded=any(r.get("query","").startswith("semantic2:") for r in cached)
+    upgraded=any(r.get("query","").startswith("semantic3:") for r in cached)
     plan=visual_search_plan(project)
     if cached and upgraded and not refresh:
         matches=scene_matches(project,cached)
@@ -276,7 +289,7 @@ def discover(studio,pid,refresh=False):
                            "channel":str(sn.get("channelTitle") or "")[:100],
                            "description":str(sn.get("description") or "")[:300],
                            "license_filter":"unverified",
-                           "query":"semantic2:"+q,
+                           "query":"semantic3:"+q,
                            "created_at":datetime.now(timezone.utc).isoformat(),
                            "youtube_url":"https://www.youtube.com/watch?v="+vid,
                            "usable_for_render":False}
