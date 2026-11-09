@@ -271,6 +271,115 @@ def use_sources(studio,pid):
           (pid,result["actual_youtube_percent"],len(sources),len(changed)),flush=True)
     return result
 
+
+def montage_mix(montage):
+    """Count seconds of the FINAL shots (not long narration scenes)."""
+    total=youtube=stock=0.0
+    shots=0
+    for scene in montage.get("timeline") or []:
+        for shot in scene.get("shots") or []:
+            seconds=float(shot.get("seconds") or 0)
+            asset=shot.get("asset") or {}
+            total+=seconds
+            shots+=1
+            if is_youtube({**asset,"duration":seconds}):
+                youtube+=seconds
+            elif asset.get("media_provider") in ("pixabay","pexels"):
+                stock+=seconds
+    return {"total_seconds":round(total,2),
+            "youtube_seconds":round(youtube,2),
+            "stock_seconds":round(stock,2),
+            "youtube_percent":round(youtube*100/total,1) if total else 0,
+            "stock_percent":round(stock*100/total,1) if total else 0,
+            "other_percent":round(max(0,total-youtube-stock)*100/total,1) if total else 0,
+            "shot_count":shots,
+            "max_youtube_seconds":max(
+                [float(shot.get("seconds") or 0)
+                 for scene in montage.get("timeline") or []
+                 for shot in scene.get("shots") or []
+                 if is_youtube({**(shot.get("asset") or {}),
+                                "duration":float(shot.get("seconds") or 0)})] or [0])}
+
+def enrich_montage(studio,project,montage):
+    """Use authorized Youtube-origin media for up to 70% of long-form microshots.
+
+    No direct download from YouTube; uses registered files from the media library
+    or separately hosted, license-verified Commons copies. Fails closed when
+    actual final shot durations do not reach the requested 70/30 ratio.
+    """
+    if not is_documentary(project) or os.getenv("STUDIO_YOUTUBE70_STRICT","1")!="1":
+        return montage
+    import copy
+    timeline=copy.deepcopy(montage)
+    current=montage_mix(timeline)
+    target_seconds=current["total_seconds"]*.70
+    candidates=available_sources(studio,project)
+    counts=Counter()
+    indexed=[]
+    for i,entry in enumerate(timeline.get("timeline") or []):
+        scene=project["scenes"][i]
+        for j,shot in enumerate(entry.get("shots") or []):
+            dur=float(shot.get("seconds") or 0)
+            if dur<1 or dur>MAX_SECONDS:continue
+            if is_youtube({**(shot.get("asset") or {}),"duration":dur}):continue
+            options=[(relevance(scene,x),x) for x in candidates]
+            options=[(score,x) for score,x in options if score>0]
+            if not options:continue
+            # Seven roughly spaced opportunities per ten shots keeps the
+            # rhythm documentary-like throughout the whole video.
+            n=len(indexed)
+            priority=0 if (n % 10) in (0,1,3,4,6,7,9) else 1
+            indexed.append((priority,-max(score for score,_ in options),i,j,dur,options))
+    indexed.sort(key=lambda x:(x[0],x[1],x[2],x[3]))
+    replaced=0
+    for priority,rank,i,j,dur,options in indexed:
+        if current["youtube_seconds"]>=target_seconds:break
+        options.sort(key=lambda item:(-item[0],counts[str(item[1].get("local") or item[1].get("url"))]))
+        for score,source in options:
+            key=str(source.get("local") or source.get("url"))
+            if counts[key]>=8:continue
+            if source["category"]=="authorized":
+                clip_scene={"duration":dur}
+                local=_cut(studio,project["id"],source,clip_scene,counts[key])
+                if not local:continue
+                asset={"media_local":local,"media_url":"",
+                    "media_provider":"authorized_youtube","media_kind":"video",
+                    "source_page":source["source_page"],
+                    "author":(source["author"]+" | autorização documentada")[:200]}
+            else:
+                if counts[key]>=2:continue
+                if not studio._approved_url(source["url"],"wikimedia"):continue
+                asset={"media_local":"","media_url":source["url"],
+                    "media_provider":"wikimedia","media_kind":"video",
+                    "source_page":source["source_page"],
+                    "author":(source["author"]+
+                       " | vídeo originalmente publicado no YouTube")[:200]}
+            timeline["timeline"][i]["shots"][j]["asset"]=asset
+            counts[key]+=1
+            current["youtube_seconds"]+=dur
+            replaced+=1
+            break
+    metric=montage_mix(timeline)
+    metric["new_youtube_shots"]=replaced
+    metric["documentary_target_youtube_percent"]=TARGET
+    metric["documentary_target_stock_percent"]=30
+    metric["sources_available"]=len(candidates)
+    out=studio.project_dir(project["id"])/"export"
+    out.mkdir(parents=True,exist_ok=True)
+    (out/"montage_youtube70_source_audit.json").write_text(
+        json.dumps(metric,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("[youtube70] final montage source mix: "+json.dumps(metric),flush=True)
+    # 1-2% tolerance for indivisible 5-8-second cuts; never falsify metrics.
+    if (metric["youtube_percent"]<69.5 or metric["stock_percent"]<28.5
+        or metric["other_percent"]>3 or metric["max_youtube_seconds"]>MAX_SECONDS):
+        raise RuntimeError(
+            "Plano 70% YouTube / 30% Pexels-Pixabay não atendido: "+
+            str(metric["youtube_percent"])+"% de YouTube e "+
+            str(metric["stock_percent"])+"% de bancos. "+
+            "Faltam fontes documentais utilizáveis; não renderizar com percentuais fictícios.")
+    return timeline
+
+
 class RegisterSource(BaseModel):
     youtube_url:str=Field(min_length=20,max_length=250)
     media_local:str=Field(min_length=4,max_length=350)
@@ -338,7 +447,9 @@ def install(studio):
         project=studio.get_project(pid)
         # Do not rewrite legacy/completed projects or disable other pipelines.
         if (project.get("status")!="concluído" and is_documentary(project)
-            and os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1"):
+            and os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1"
+            and (int(project.get("duration_minutes") or 0)<6 or
+                 os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT","1")!="1")):
             use_sources(studio,pid)
             metric=count(studio.get_project(pid))
             if not metric["ready_for_70_30"]:
@@ -384,7 +495,15 @@ def self_test():
     assert video_seconds({"duration":8})==8
     assert not is_youtube({"media_provider":"pixabay","media_kind":"video","duration":8,
                            "media_url":"https://pixabay.com/clip.mp4"})
-    print("[youtube70] SELF-TEST PASS search/rights/70-30/caps",flush=True)
+    mock={"timeline":[{"shots":[
+       {"seconds":7,"asset":{"media_kind":"video","media_provider":"pixabay",
+                              "media_url":"https://pixabay.com/test.mp4"}},
+       {"seconds":7,"asset":{"media_kind":"video","media_provider":"pixabay",
+                              "media_url":"https://pixabay.com/test2.mp4"}}
+    ]}]}
+    report=montage_mix(mock)
+    assert report["stock_percent"]==100.0 and report["youtube_percent"]==0.0
+    print("[youtube70] SELF-TEST PASS search/rights/70-30/caps and long-form montage",flush=True)
 
 if __name__=="__main__":
     self_test()
