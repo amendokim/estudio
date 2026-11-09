@@ -40,7 +40,7 @@ h3{font-size:17px;margin:6px 0}.error{color:#ffb8ae}
 <label>Nome do canal<input name="name" required minlength="3" placeholder="Histórias de Fronteira"></label>
 <label>Nicho<input name="niche" required minlength="3" placeholder="História, mistérios e geografia"></label>
 <label>Idioma<select name="language"><option value="pt">Português</option>
-<option value="en">English</option><option value="es">Español</option></select></label>
+<option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></label>
 <label>Fuso horário<input name="timezone" value="America/Sao_Paulo"></label>
 <label>Quantidade por dia<input name="daily_quantity" type="number" min="1" max="4" value="1"></label>
 <label>Horários separados por vírgula<input name="hours" value="18:00" placeholder="09:00,18:00"></label>
