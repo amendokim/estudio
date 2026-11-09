@@ -8,3 +8,5 @@ edge-tts>=6.1,<8
 openai>=1.50,<3
 boto3>=1.35,<2
 cryptography>=43,<49
+google-auth>=2.30,<3
+requests>=2.31,<3
