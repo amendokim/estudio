@@ -100,10 +100,15 @@ def relevant_to_project(title, project):
         if any(label in name for label in
                ("ponte da amizade", "friendship bridge", "puente de la amistad")):
             return True
-        return (any(city in name for city in ("ciudad del este", "foz do iguacu"))
-                and any(road in name for road in
-                        ("ponte", "puente", "bridge", "road", "rodovia",
-                         "trafego", "transito", "traffic", "border", "fronteira")))
+        return (
+            any(city in name for city in
+                ("ciudad del este", "foz do iguacu", "paraguay", "paraguai",
+                 "alto parana", "triple frontera"))
+            and any(scene in name for scene in
+                ("ponte", "puente", "bridge", "road", "rodovia", "trafego",
+                 "transito", "traffic", "border", "fronteira", "comercio",
+                 "commerce", "market", "city", "cidade", "calle", "street",
+                 "transport", "aduana", "customs")))
     stop = {"video", "film", "documentario", "documentary", "historia", "historico",
             "sobre", "para", "brasil", "mundo", "the", "with", "uma", "um", "dos",
             "desta", "atraves", "piloto", "cinematografico", "minutos", "partes"}
@@ -146,18 +151,24 @@ def _commons_candidates(project):
     try:
         if cache_key == "ponte_da_amizade":
             terms = ('"Ponte da Amizade"', '"Ciudad del Este"',
-                     '"Foz do Iguaçu"', '"Friendship Bridge"')
+                     '"Foz do Iguaçu"', '"Friendship Bridge"',
+                     '"Puente de la Amistad"', '"Paraguay border"',
+                     '"Paraguay traffic"', '"Triple Frontera"')
         else:
-            terms = (" ".join(re.findall(r"[\w-]{5,}",
-                                     project.get("title", ""))[:3]),)
+            scene_terms = [str(sc.get("query") or "").strip()
+                           for sc in (project.get("scenes") or [])]
+            termlist = [" ".join(re.findall(r"[\w-]{5,}",
+                                project.get("title", ""))[:3])]
+            termlist += scene_terms[::max(1,len(scene_terms)//5)]
+            terms = tuple(dict.fromkeys(x[:70] for x in termlist if x))
         with httpx.Client(timeout=16, follow_redirects=False) as client:
-            for search_term in terms[:4]:
+            for search_term in terms[:8]:
                 if not search_term:
                     continue
                 params = {
                     "action": "query", "format": "json", "generator": "search",
                     "gsrsearch": search_term + " filetype:video",
-                    "gsrnamespace": "6", "gsrlimit": "12", "prop": "imageinfo",
+                    "gsrnamespace": "6", "gsrlimit": "25", "prop": "imageinfo",
                     "iiprop": "url|mime|size|extmetadata",
                     "iiextmetadatafilter":
                     "LicenseShortName|Artist|Source|Credit|Description",
@@ -194,7 +205,7 @@ def _commons_candidates(project):
         except (httpx.HTTPError, KeyError, ValueError, OSError):
             pass
     # Avoid false quota fulfillment by repeating one video as multiple sources.
-    unique = list({x["url"]: x for x in result}.values())[:12]
+    unique = list({x["url"]: x for x in result}.values())[:40]
     _cache[cache_key] = (time.monotonic(), unique)
     return unique
 
