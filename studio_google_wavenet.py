@@ -41,7 +41,8 @@ def is_selected():
 
 
 def have_credentials():
-    return bool(os.getenv("GOOGLE_TTS_SERVICE_ACCOUNT_JSON_B64", "").strip())
+    return bool(os.getenv("GOOGLE_TTS_SERVICE_ACCOUNT_JSON", "").strip() or
+                os.getenv("GOOGLE_TTS_SERVICE_ACCOUNT_JSON_B64", "").strip())
 
 
 def month():
@@ -173,11 +174,12 @@ def set_usage_status(studio,key,value):
 
 
 def token():
-    raw=os.getenv("GOOGLE_TTS_SERVICE_ACCOUNT_JSON_B64","").strip()
-    if not raw:
+    plain=os.getenv("GOOGLE_TTS_SERVICE_ACCOUNT_JSON","").strip()
+    encoded=os.getenv("GOOGLE_TTS_SERVICE_ACCOUNT_JSON_B64","").strip()
+    if not (plain or encoded):
         raise RuntimeError("Faltam credenciais do Google TTS no Railway")
     try:
-        data=json.loads(base64.b64decode(raw,validate=True))
+        data=json.loads(plain if plain else base64.b64decode(encoded,validate=True))
         if data.get("type")!="service_account" or not data.get("private_key"):
             raise ValueError("not service account")
         from google.oauth2 import service_account
