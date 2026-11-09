@@ -118,6 +118,19 @@ def score(v):
 def _list(client,path,params):
     response=client.get("https://api.elevenlabs.io"+path,params=params)
     if response.status_code!=200:
+        # Log only an API error identifier (not the response, request or key).
+        marker="unknown"
+        try:
+            detail=response.json().get("detail") or {}
+            if isinstance(detail,dict):
+                marker=str(detail.get("status") or detail.get("code") or "unknown")
+            elif isinstance(detail,str):
+                marker="text_detail"
+        except ValueError:
+            marker="non_json"
+        marker=re.sub("[^a-zA-Z0-9_-]","",marker)[:60]
+        print("[voice-curator] GET "+path+" HTTP="+str(response.status_code)+
+              " code="+marker,flush=True)
         return [],response.status_code
     try:
         obj=response.json()
@@ -131,6 +144,10 @@ def _select(studio):
     key=os.getenv("ELEVENLABS_API_KEY","")
     if not key:
         raise RuntimeError("ELEVENLABS_API_KEY não encontrada no Railway")
+    print("[voice-curator] key diagnostics length="+str(len(key))+
+          " whitespace="+str(key!=key.strip())+
+          " wrapped_quotes="+str(key.startswith(('"',"'"))) +
+          " expected_sk_prefix="+str(key.startswith("sk_")),flush=True)
     # An explicitly set voice ID always takes priority over auto discovery.
     override=os.getenv("STUDIO_ELEVENLABS_VOICE_ID","").strip()
     if override:
