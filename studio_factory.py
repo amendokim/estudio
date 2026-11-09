@@ -337,7 +337,7 @@ const direction=document.createElement('a');
 direction.href='/api/editorial/strategy/projects/'+encodeURIComponent(p.id);
 direction.textContent='Origem de mídia e ritmo';direction.target='_blank';
 direction.rel='noopener noreferrer';section.append(' · ',direction);
-const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Ver proporção 70/30';archival.onclick=async()=>{try{const data=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/mix');alert('META: 70% YouTube, 30% Pixabay/Pexels.\\nATUAL: '+data.actual_youtube_percent+'% YouTube, '+data.actual_stock_percent+'% bancos, '+data.actual_other_percent+'% outros.\\nFaltam: '+data.missing_youtube_seconds+' segundos de YouTube verificado.\\nPronto para 70/30: '+(data.ready_for_70_30?'SIM':'NÃO')+'\\nCortes de até 10 segundos.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
+const inspect=document.createElement('button');inspect.textContent='Analisar capacidade';inspect.onclick=async()=>{try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));alert(JSON.stringify(plan,null,2))}catch(e){alert(e.message)}};section.append(' ',inspect);const archival=document.createElement('button');archival.textContent='Ver proporção 70/30';archival.onclick=async()=>{try{const data=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/mix');alert('META: 70% YouTube, 30% Pixabay/Pexels.\\nATUAL: '+data.actual_youtube_percent+'% YouTube, '+data.actual_stock_percent+'% bancos, '+data.actual_other_percent+'% outros.\\nOrigens YouTube diferentes: '+data.unique_youtube_sources+' (mínimo para a meta: '+data.required_distinct_sources+').\\nPercentual efetivo sem reutilização excessiva: '+data.effective_youtube_percent+'%.\\nFaltam: '+data.missing_youtube_seconds+' segundos de YouTube verificado.\\nPronto para 70/30: '+(data.ready_for_70_30?'SIM':'NÃO')+'\\nCortes de até 10 segundos.')}catch(e){alert('Relatório indisponível: '+e.message)}};section.append(' ',archival);
 const autoPolicy=document.createElement('button');autoPolicy.textContent='Regra automática: 10 s';
 autoPolicy.onclick=async()=>{try{
  const rules=await req('/api/youtube-policy');
@@ -376,6 +376,43 @@ youtubeDiscovery.onclick=async()=>{youtubeDiscovery.disabled=true;try{
  holder.append(info);section.append(holder);
  }catch(e){alert('Busca YouTube: '+e.message)}finally{youtubeDiscovery.disabled=false}};
 section.append(' ',youtubeDiscovery);
+const sourcePicker=document.createElement('details');sourcePicker.style.margin='8px 0';
+const sourceTitle=document.createElement('summary');
+sourceTitle.textContent='Importar vídeo de origem YouTube para o documentário';
+sourcePicker.append(sourceTitle);
+const sourceForm=document.createElement('form');sourceForm.style.cssText='padding:12px;border:1px solid #405570;border-radius:12px;margin:8px 0';
+function sourceInput(label,type,required){
+ const wrap=document.createElement('label');wrap.style.display='block';wrap.textContent=label;
+ const input=document.createElement('input');input.type=type;input.required=required;
+ wrap.append(input);sourceForm.append(wrap);return input;
+}
+const srcFile=sourceInput('Arquivo MP4, MOV, WEBM ou MKV (até 150 MB)','file',true);
+srcFile.accept='.mp4,.mov,.webm,.mkv';
+const srcYouTube=sourceInput('Link do vídeo de origem no YouTube','url',true);
+const srcTitle=sourceInput('Título e assunto das cenas','text',true);
+const srcAuthor=sourceInput('Crédito do autor','text',false);
+const srcEvidence=sourceInput('Link do comprovante de autorização de uso','url',true);
+const rights=document.createElement('label');rights.style.display='block';
+const rightsCheck=document.createElement('input');rightsCheck.type='checkbox';rightsCheck.required=true;
+rightsCheck.style.width='auto';rights.append(rightsCheck,document.createTextNode(' Confirmo que tenho direitos ou autorização para reutilizar o arquivo.'));
+sourceForm.append(rights);
+const submitSource=document.createElement('button');submitSource.type='submit';
+submitSource.textContent='Enviar vídeo para biblioteca';sourceForm.append(submitSource);
+const sourceFeedback=document.createElement('p');sourceForm.append(sourceFeedback);
+sourceForm.onsubmit=async event=>{
+ event.preventDefault();submitSource.disabled=true;sourceFeedback.textContent='Enviando arquivo...';
+ try{
+  const fd=new FormData();fd.append('video',srcFile.files[0]);
+  fd.append('youtube_url',srcYouTube.value.trim());
+  fd.append('title',srcTitle.value.trim());fd.append('author',srcAuthor.value.trim());
+  fd.append('evidence_url',srcEvidence.value.trim());fd.append('rights_confirmed','true');
+  const response=await fetch('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/upload',{method:'POST',body:fd});
+  const obj=await response.json();if(!response.ok)throw Error(obj.detail||JSON.stringify(obj));
+  sourceFeedback.textContent='Arquivo registrado. Agora ele pode ser escolhido para os cortes do documentário.';
+  sourceForm.reset();
+ }catch(e){sourceFeedback.textContent='Falha: '+e.message}finally{submitSource.disabled=false}
+};
+sourcePicker.append(sourceForm);section.append(sourcePicker);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
 const capcut=document.createElement('button');capcut.textContent='Preparar para CapCut';
