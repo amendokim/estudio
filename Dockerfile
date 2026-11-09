@@ -72,6 +72,8 @@ COPY studio_elevenlabs_tts.py /app/studio_elevenlabs_tts.py
 RUN python -m py_compile /app/studio_elevenlabs_tts.py && python /app/studio_elevenlabs_tts.py
 COPY studio_voice_curator.py /app/studio_voice_curator.py
 RUN python -m py_compile /app/studio_voice_curator.py && python /app/studio_voice_curator.py
+COPY studio_free_voice_test.py /app/studio_free_voice_test.py
+RUN python -m py_compile /app/studio_free_voice_test.py && python /app/studio_free_voice_test.py
 COPY studio_dynamic_preview_pilot.py /app/studio_dynamic_preview_pilot.py
 RUN python -m py_compile /app/studio_dynamic_preview_pilot.py && python /app/studio_dynamic_preview_pilot.py
 EXPOSE 8000
