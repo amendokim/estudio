@@ -35,6 +35,10 @@ STOP={"video","youtube","paraguai","brasil","sobre","documentario",
       "para","esta","essas","todos","entre","porque","quem","quando",
       "the","and","with","from","street","film","archive","footage"}
 
+def is_documentary(p):
+    text=policy.normalized(str(p.get("topic") or "")+" "+str(p.get("title") or ""))
+    return any(word in text for word in ("documentario","documentary","investigacao","reportagem"))
+
 def video_seconds(s):
     try: return max(0.1,float(s.get("duration") or 7))
     except (TypeError,ValueError): return 7.0
@@ -57,7 +61,7 @@ def count(p):
             "actual_other_percent":round(100*(total-y-stock)/total,1) if total else 0,
             "youtube_seconds":round(y,1),"total_seconds":round(total,1),
             "missing_youtube_seconds":round(max(0,total*.7-y),1),
-            "ready_for_70_30":bool(total and y/total>=.695),
+            "ready_for_70_30":bool(total and y/total>=.695 and stock/total>=.285 and (total-y-stock)/total<=.03),
             "youtube_shots":sum(is_youtube(s) for s in scenes),
             "total_shots":len(scenes),"max_youtube_clip_seconds":MAX_SECONDS,
             "youtube_downloads_from_api":False,
@@ -95,6 +99,9 @@ def discover(studio,pid,refresh=False):
             "SELECT * FROM documentary_youtube_research WHERE project_id=? "
             "ORDER BY created_at DESC LIMIT 60",(pid,)).fetchall()]
     if old and not refresh:
+        for x in old:
+            x["youtube_url"]="https://www.youtube.com/watch?v="+x["video_id"]
+            x["usable_for_render"]=False
         return {"project_id":pid,"cached":True,"candidates":old,
                 "note":"Referências não são arquivos e não são consideradas licenciadas."}
     # Cap API usage: explicit refresh can requery, never called in a continuous loop.
@@ -128,6 +135,22 @@ def discover(studio,pid,refresh=False):
                        "usable_for_render":False}
             except (httpx.HTTPError,ValueError):
                 continue
+    # videos.list reports the license selected by the uploader. This metadata
+    # is not a permit to download footage through the YouTube API.
+    if results:
+        try:
+            with httpx.Client(timeout=14,follow_redirects=False) as client:
+                ids=",".join(list(results)[:50])
+                status=client.get("https://www.googleapis.com/youtube/v3/videos",
+                    params={"part":"status","id":ids,"key":key})
+                status.raise_for_status()
+                for entry in status.json().get("items") or []:
+                    vid=entry.get("id")
+                    if vid in results:
+                        license_name=str((entry.get("status") or {}).get("license") or "")
+                        results[vid]["license_filter"]=license_name or "unknown"
+        except (httpx.HTTPError,ValueError):
+            pass
     with studio.db() as db:
         for row in results.values():
             db.execute("""INSERT OR REPLACE INTO documentary_youtube_research
@@ -296,30 +319,35 @@ def install(studio):
     previous_find=studio._auto_find_media
     previous_render=studio.render_task
     def youtube_first_find(pid,limit):
+        project=studio.get_project(pid)
+        if is_documentary(project) and project.get("status")!="concluído":
+            try:
+                discover(studio,pid)
+            except Exception as e:
+                print("[youtube70] research unavailable: "+type(e).__name__,flush=True)
         result=previous_find(pid,limit)
-        try:use_sources(studio,pid)
-        except Exception as e:
-            print("[youtube70] selection unavailable: "+type(e).__name__+
-                  " "+str(e)[:150],flush=True)
+        if is_documentary(project):
+            try:use_sources(studio,pid)
+            except Exception as e:
+                print("[youtube70] selection unavailable: "+type(e).__name__+
+                      " "+str(e)[:150],flush=True)
         return result
     studio._auto_find_media=youtube_first_find
 
     def youtube70_render(pid):
         project=studio.get_project(pid)
         # Do not rewrite legacy/completed projects or disable other pipelines.
-        if project.get("status")!="concluído" and (
-            "documentário" in str(project.get("topic") or "").casefold() or
-            "documentario" in policy.normalized(project.get("topic") or "") or
-            "documentary" in str(project.get("topic") or "").casefold()
-        ) and os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1":
+        if (project.get("status")!="concluído" and is_documentary(project)
+            and os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1"):
             use_sources(studio,pid)
             metric=count(studio.get_project(pid))
             if not metric["ready_for_70_30"]:
                 studio.update_project(pid,status="erro",progress=0,
-                    error=("Meta de 70% YouTube não alcançada: "+
-                           str(metric["actual_youtube_percent"])+"%. Falta arquivo "
-                           "de origem YouTube com autorização/documentação; "
-                           "não substituir silenciosamente por Pixabay."))
+                    error=("Meta 70% YouTube / 30% banco não alcançada: "+
+                           str(metric["actual_youtube_percent"])+"% YouTube e "+
+                           str(metric["actual_stock_percent"])+"% bancos. "
+                           "Faltam arquivos documentais utilizáveis. "
+                           "Nenhum vídeo sem autorização foi baixado."))
                 return
         return previous_render(pid)
     studio.render_task=youtube70_render
