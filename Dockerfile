@@ -78,6 +78,8 @@ COPY studio_google_wavenet.py /app/studio_google_wavenet.py
 RUN python -m py_compile /app/studio_google_wavenet.py && python /app/studio_google_wavenet.py
 COPY studio_dynamic_preview_pilot.py /app/studio_dynamic_preview_pilot.py
 RUN python -m py_compile /app/studio_dynamic_preview_pilot.py && python /app/studio_dynamic_preview_pilot.py
+COPY studio_paraguai_v2_rescue.py /app/studio_paraguai_v2_rescue.py
+RUN python -m py_compile /app/studio_paraguai_v2_rescue.py && python /app/studio_paraguai_v2_rescue.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
