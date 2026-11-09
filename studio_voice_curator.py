@@ -177,6 +177,15 @@ def _select(studio):
         shared=sorted(best_by_id.values(),key=lambda x:-x["score"])
         best_installed=available[0] if available else None
         recommended=shared[0] if shared else None
+        print("[voice-curator] audit installed_http="+str(known_status)+
+              " installed_count="+str(len(available))+
+              " top_installed="+str((best_installed or {}).get("name","none"))+
+              " top_installed_score="+str((best_installed or {}).get("score","none"))+
+              " library_http="+str(lib_status)+
+              " library_count="+str(len(shared))+
+              " top_library="+str((recommended or {}).get("name","none"))+
+              " top_library_score="+str((recommended or {}).get("score","none")),
+              flush=True)
         selected=best_installed
         decision="installed_voice_ranking"
         notice=""
