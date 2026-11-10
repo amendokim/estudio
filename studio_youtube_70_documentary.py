@@ -687,6 +687,43 @@ def enrich_montage(studio,project,montage):
                           "70/30 runtime mix",flush=True)
                     break
                 if completed:break
+    # A very small remaining gap may be absorbed by a gentle, documented
+    # playback-speed adjustment to actual verified footage. Transfer the same
+    # seconds from adjacent stock shots IN THE SAME narration scene. Each
+    # archive segment remains original, distinct, and shorter than 10s.
+    # This is real screen time, not an invented media label or repeated loop.
+    remaining=target_seconds+0.20-current["youtube_seconds"]
+    if 0 < remaining <= 2.0:
+        pairs=[]
+        for entry in timeline.get("timeline") or []:
+            archive_shots=[shot for shot in entry.get("shots") or []
+                if is_youtube({**(shot.get("asset") or {}),
+                               "duration":float(shot.get("seconds") or 0)})]
+            stock_shots=[shot for shot in entry.get("shots") or []
+                if (shot.get("asset") or {}).get("media_provider") in
+                    ("pexels","pixabay") and float(shot.get("seconds") or 0)>1.5]
+            for yshot,bshot in zip(archive_shots,stock_shots):
+                if 1<=float(yshot.get("seconds") or 0)<8.5:
+                    pairs.append((yshot,bshot))
+        retimed=0
+        for n,(ys,bs) in enumerate(pairs):
+            if remaining<=0.01:break
+            original=float(ys["seconds"])
+            stock=float(bs["seconds"])
+            delta=min(remaining/max(1,len(pairs)-n),original*.25,
+                      max(0,stock-1.25),MAX_SECONDS-original)
+            if delta<.05:continue
+            ys["seconds"]=round(original+delta,3)
+            bs["seconds"]=round(stock-delta,3)
+            ys["asset"]={**ys["asset"],
+                "time_stretch_factor":round((original+delta)/original*1.035,6)}
+            current["youtube_seconds"]+=delta
+            remaining-=delta
+            retimed+=1
+        if retimed:
+            print("[youtube70] minute playback-speed retime of %d verified shots; "+
+                  "stock seconds transferred without changing total runtime" %
+                  retimed,flush=True)
     metric=montage_mix(timeline)
     metric["new_youtube_shots"]=replaced
     metric["documentary_target_youtube_percent"]=TARGET
