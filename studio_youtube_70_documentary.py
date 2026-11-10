@@ -622,6 +622,61 @@ def enrich_montage(studio,project,montage):
             current["youtube_seconds"]+=dur
             replaced+=1
             break
+
+    # Fine-grained truthful adjustment: when a whole 4-8s cut would overshoot
+    # the 30% stock share, split ONE existing stock shot into a short verified
+    # archive insert plus the remaining stock clip. All seconds are real and
+    # total scene/video duration is unchanged; no frames are double-counted.
+    deficit=target_seconds-current["youtube_seconds"]
+    if 0 < deficit <= 2.0:
+        insert_seconds=round(max(1.10,min(1.45,deficit+0.30)),3)
+        completed=False
+        for i,entry in enumerate(timeline.get("timeline") or []):
+            scene=project["scenes"][i]
+            if completed:break
+            for j,shot in enumerate(entry.get("shots") or []):
+                duration=float(shot.get("seconds") or 0)
+                provider=(shot.get("asset") or {}).get("media_provider")
+                if provider not in ("pexels","pixabay") or duration<insert_seconds+1.25:
+                    continue
+                candidates=sorted(
+                    ((relevance(scene,src),src) for src in candidates),
+                    key=lambda x:(-x[0],counts[str(x[1].get("source_page") or
+                        x[1].get("local") or x[1].get("url"))]))
+                for score,source in candidates:
+                    if score<=0:continue
+                    key=str(source.get("source_page") or source.get("local") or source.get("url"))
+                    if counts[key]>=MAX_SOURCE_USES:continue
+                    if source["category"]=="authorized":
+                        local=_cut(studio,project["id"],source,
+                                   {"duration":insert_seconds},counts[key])
+                        if not local:continue
+                        extra={"media_local":local,"media_url":"",
+                            "media_provider":"authorized_youtube","media_kind":"video",
+                            "source_page":source["source_page"],
+                            "author":(source["author"]+" | autorização documentada")[:200]}
+                    else:
+                        cached=_download_commons(studio,project["id"],source)
+                        if not cached:continue
+                        local=_cut(studio,project["id"],{**source,"local":cached},
+                                   {"duration":insert_seconds},counts[key])
+                        if not local:continue
+                        extra={"media_local":local,"media_url":"",
+                            "media_provider":"wikimedia","media_kind":"video",
+                            "source_page":source["source_page"],
+                            "author":(source["author"]+
+                                " | vídeo originalmente publicado no YouTube")[:200]}
+                    # Keep the narrated scene length exact.
+                    shot["seconds"]=round(duration-insert_seconds,3)
+                    entry["shots"].insert(j,{"asset":extra,"seconds":insert_seconds})
+                    counts[key]+=1
+                    current["youtube_seconds"]+=insert_seconds
+                    replaced+=1
+                    completed=True
+                    print("[youtube70] added 1 verified micro-insert to reach precise "+
+                          "70/30 runtime mix",flush=True)
+                    break
+                if completed:break
     metric=montage_mix(timeline)
     metric["new_youtube_shots"]=replaced
     metric["documentary_target_youtube_percent"]=TARGET
