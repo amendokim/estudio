@@ -137,6 +137,43 @@ def matches_for_scene(scene,assets,max_results=4):
                   key=lambda x:(-x[0],x[1]["source_page"]))
     return [a for score,a in ranked if score>=8][:max_results]
 
+def fill_short_preview(studio,pid):
+    """Improve a short preview with distinct licensed Commons footage.
+
+    Only replaces generic stock or missing media with at least TWO concrete
+    scene/title matches. Leaves YouTube-origin provenance and ratio untouched.
+    The caller explicitly opts into a preview without mandatory 70/30.
+    """
+    project=studio.get_project(pid)
+    assets=discover(project)
+    if not assets:
+        return {"found":0,"replaced":0,"note":"Nenhum Commons reutilizável pertinente"}
+    seen={str(x.get("source_page") or "") for x in project.get("scenes") or []
+          if x.get("source_page")}
+    replaced=0
+    limit=max(1,len(project.get("scenes") or [])//3)
+    for scene in project.get("scenes") or []:
+        if replaced>=limit:break
+        if scene.get("media_provider") not in ("pixabay","pexels","original",""):
+            continue
+        candidates=[a for a in matches_for_scene(scene,assets,8)
+                    if relevance(scene,a)>=16 and a["source_page"] not in seen
+                    and studio._approved_url(a["media_url"],"wikimedia")]
+        if not candidates:continue
+        asset=candidates[0]
+        with studio.db() as c:
+            c.execute("""UPDATE scenes SET media_url=?,media_local='',
+                media_kind='video',media_provider='wikimedia',source_page=?,
+                author=?,thumb='' WHERE id=? AND project_id=?""",
+                (asset["media_url"],asset["source_page"],asset["author"],
+                 scene["id"],pid))
+        seen.add(asset["source_page"])
+        replaced+=1
+    print("[commons-broll] short preview project=%s replaced=%d" %
+          (pid,replaced),flush=True)
+    return {"found":len(assets),"replaced":replaced,
+            "note":"Uso de materiais licenciados; não são contabilizados como YouTube"}
+
 def self_test():
     sample={"title":"File:Paraguay city street.webm","imageinfo":[]}
     i={"mime":"video/webm","size":10240,
