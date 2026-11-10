@@ -692,6 +692,24 @@ def install(studio):
         return previous_render(pid)
     studio.render_task=youtube70_render
 
+    def licensed_preview(pid):
+        """Explicit alternative when the requested 70/30 cannot be sourced.
+
+        This is NOT a 70/30 documentary: actual YouTube and Commons percentages
+        remain distinguishable in the source audit. Executed by the existing
+        factory queue only after user confirmation.
+        """
+        project=studio.get_project(pid)
+        if project.get("status")=="concluído":
+            raise RuntimeError("Projeto já concluído")
+        if int(project.get("duration_minutes") or 0)>5:
+            raise RuntimeError("Piloto alternativo limitado a 5 minutos neste trabalhador")
+        import studio_licensed_archive as archive
+        archive.fill_short_preview(studio,pid)
+        return previous_render(pid)
+
+    studio.render_licensed_preview=licensed_preview
+
     @studio.app.get("/api/youtube70/status")
     def status():
         return {"version":VERSION,"target_percent":TARGET,"stock_percent":30,
@@ -727,6 +745,17 @@ def install(studio):
             rights_confirmed:bool=Form(False)):
         return await upload_source(studio,pid,video,youtube_url,title,author,
                                    evidence_url,rights_confirmed)
+
+    @studio.app.get("/api/youtube70/projects/{pid}/licensed-broll")
+    def licensed_broll(pid:str):
+        import studio_licensed_archive as archive
+        p=studio.get_project(pid)
+        matches=archive.discover(p)
+        return {"project_id":pid,"count":len(matches),
+                "files":[{"title":x["archive_title"],"page":x["source_page"],
+                          "license":x["archive_license"]}
+                         for x in matches[:30]],
+                "note":"Acervo Wikimedia reutilizável. Estes arquivos não são contabilizados como origem YouTube."}
 
     @studio.app.get("/api/youtube70/projects/{pid}/sources")
     def sources(pid:str):
