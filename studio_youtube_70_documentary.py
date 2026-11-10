@@ -639,11 +639,11 @@ def enrich_montage(studio,project,montage):
                 provider=(shot.get("asset") or {}).get("media_provider")
                 if provider not in ("pexels","pixabay") or duration<insert_seconds+1.25:
                     continue
-                candidates=sorted(
+                ranked_candidates=sorted(
                     ((relevance(scene,src),src) for src in candidates),
                     key=lambda x:(-x[0],counts[str(x[1].get("source_page") or
                         x[1].get("local") or x[1].get("url"))]))
-                for score,source in candidates:
+                for score,source in ranked_candidates:
                     if score<=0:continue
                     key=str(source.get("source_page") or source.get("local") or source.get("url"))
                     if counts[key]>=MAX_SOURCE_USES:continue
