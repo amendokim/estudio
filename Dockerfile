@@ -48,6 +48,8 @@ COPY studio_editorial_preview.py /app/studio_editorial_preview.py
 RUN python -m py_compile /app/studio_editorial_preview.py && python /app/studio_editorial_preview.py
 COPY studio_semantic_media.py /app/studio_semantic_media.py
 RUN python -m py_compile /app/studio_semantic_media.py && python /app/studio_semantic_media.py
+COPY studio_licensed_archive.py /app/studio_licensed_archive.py
+RUN python -m py_compile /app/studio_licensed_archive.py && python /app/studio_licensed_archive.py
 COPY studio_dynamic_montage.py /app/studio_dynamic_montage.py
 RUN python -m py_compile /app/studio_dynamic_montage.py && python /app/studio_dynamic_montage.py
 COPY studio_semantic_stock_smoke.py /app/studio_semantic_stock_smoke.py
