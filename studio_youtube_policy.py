@@ -205,9 +205,19 @@ def _commons_candidates(project):
                                 project.get("title", ""))[:3])]
             termlist += scene_terms[::max(1,len(scene_terms)//5)]
             terms = tuple(dict.fromkeys(x[:70] for x in termlist if x))
+        # Supplement fixed location searches with visual phrases from the
+        # actual narration, without assuming that all archive video is YouTube.
+        # clip_from_commons continues to require both a reusable license and
+        # documented YouTube origin before a candidate is counted as such.
+        scene_queries=[str(x.get("query") or "").strip()[:70]
+                       for x in (project.get("scenes") or [])]
+        scene_queries=[q for q in scene_queries if len(q.split())>=2]
+        if scene_queries:
+            steps=max(1,len(scene_queries)//6)
+            terms=tuple(dict.fromkeys((*terms,*scene_queries[::steps])))
         with httpx.Client(timeout=16, follow_redirects=False) as client:
             derivative_calls=0
-            for search_term in terms[:10]:
+            for search_term in terms[:16]:
                 if not search_term:
                     continue
                 params = {
