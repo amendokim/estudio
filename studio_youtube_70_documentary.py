@@ -30,7 +30,7 @@ VERSION="youtube70-semantic-search-v3"
 TARGET=70
 MAX_SECONDS=10
 MAX_SEARCHES=16
-MAX_SOURCE_USES=5
+MAX_SOURCE_USES=6
 LOCK=threading.RLock()
 LICENSED_PREVIEW_ACTIVE=set()
 
@@ -426,6 +426,12 @@ def _cut(studio,pid,source,scene,used):
     seconds=video_seconds(scene)
     # Never repeat identical frame windows to artificially fill the percentage.
     offset=used*(MAX_SECONDS+.5)
+    if used>=5:
+        # Five complete placements are spaced at 10.5-second intervals.
+        # For the sixth, pack into the unoccupied tail without overlapping
+        # even the earlier 7-second scene-level source cuts.
+        previous=(used-1)*(MAX_SECONDS+.5)
+        offset=max(previous+7.25,min(offset,total-seconds-.3))
     if total < offset+seconds+.2:return None
     output=studio.project_dir(pid)/"uploads"/"youtube70"
     output.mkdir(parents=True,exist_ok=True)
@@ -586,6 +592,10 @@ def enrich_montage(studio,project,montage):
     replaced=0
     for priority,rank,i,j,dur,options in indexed:
         if current["youtube_seconds"]>=target_seconds:break
+        # Leave room for a precise 1-second insertion when replacing another
+        # entire stock shot would push the final stock share under 28.5%.
+        if current["youtube_seconds"]+dur > current["total_seconds"]*.715:
+            continue
         options.sort(key=lambda item:(-item[0],counts[str(item[1].get("source_page") or item[1].get("local") or item[1].get("url"))]))
         for score,source in options:
             key=str(source.get("source_page") or source.get("local") or source.get("url"))
