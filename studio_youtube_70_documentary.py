@@ -721,9 +721,9 @@ def enrich_montage(studio,project,montage):
             remaining-=delta
             retimed+=1
         if retimed:
-            print("[youtube70] minute playback-speed retime of %d verified shots; "+
-                  "stock seconds transferred without changing total runtime" %
-                  retimed,flush=True)
+            print(f"[youtube70] gentle retime of {retimed} verified shots; "
+                  "stock seconds transferred without changing total runtime",
+                  flush=True)
     metric=montage_mix(timeline)
     metric["new_youtube_shots"]=replaced
     metric["documentary_target_youtube_percent"]=TARGET
