@@ -258,12 +258,16 @@ def make_scene(studio,pid,project,index,entry,out,final,preset="veryfast"):
         if not fragment.is_file() or abs(_dur(studio,fragment)-duration)>.22:
             source_duration=_dur(studio,local)
             is_video=asset.get("media_kind")=="video"
+            stretch=float(asset.get("time_stretch_factor") or 1.0)
+            if not 1.0<=stretch<=1.40:
+                raise RuntimeError("Fator de velocidade da mídia fora do limite")
             # Use a different section and crop if a source appears again later.
             if is_video:
                 # Never silently loop a shorter clip to pad a voice segment.
                 # Reject the source so the editor can request more media rather
                 # than repeat the same frames, as happened in the first pilot.
-                if source_duration + 0.05 < duration:
+                if source_duration + 0.05 < duration and not (
+                    stretch>1.0 and source_duration*stretch >= duration-.08):
                     raise RuntimeError(
                         f"Cena {index+1}, tomada {j+1}: vídeo-fonte de "
                         f"{source_duration:.1f}s menor que corte de {duration:.1f}s; "
@@ -274,7 +278,10 @@ def make_scene(studio,pid,project,index,entry,out,final,preset="veryfast"):
             else:
                 input_args=["-loop","1","-framerate","24","-i",str(local)]
             zoom=1.05 if (j%3==0) else (1.08 if j%3==1 else 1.02)
-            filt=(f"scale=ceil(iw*{zoom}/2)*2:ceil(ih*{zoom}/2)*2,"
+            stretch_filter=(f"setpts={stretch:.6f}*(PTS-STARTPTS)," if
+                            is_video and stretch>1.0 else "")
+            filt=(stretch_filter+
+                  f"scale=ceil(iw*{zoom}/2)*2:ceil(ih*{zoom}/2)*2,"
                   f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,fps=24,"
                   "eq=contrast=1.035:saturation=0.985,format=yuv420p")
