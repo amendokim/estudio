@@ -53,7 +53,7 @@ def limit_int(name: str, default: int, minimum=1, maximum=100000):
 
 class QueueRequest(BaseModel):
     project_id: str = Field(min_length=36, max_length=36)
-    operation: Literal['validate', 'render', 'autopilot'] = 'validate'
+    operation: Literal['validate', 'render', 'autopilot', 'render_licensed'] = 'validate'
 
 
 class BatchRequest(BaseModel):
@@ -279,6 +279,10 @@ def execute(studio, job):
         return
     if operation == 'autopilot':
         studio.autopilot_task(pid)
+    elif operation == 'render_licensed':
+        if not hasattr(studio, 'render_licensed_preview'):
+            raise RuntimeError('Piloto licenciado indisponível nesta versão')
+        studio.render_licensed_preview(pid)
     else:
         studio.render_task(pid)
     p = studio.get_project(pid)
@@ -421,6 +425,7 @@ sourceForm.onsubmit=async event=>{
  }catch(e){sourceFeedback.textContent='Falha: '+e.message}finally{submitSource.disabled=false}
 };
 sourcePicker.append(sourceForm);section.append(sourcePicker);
+const commonsPool=document.createElement('button');commonsPool.textContent='Ver vídeos Commons disponíveis';commonsPool.onclick=async()=>{commonsPool.disabled=true;try{const list=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/licensed-broll');alert('Arquivos reutilizáveis: '+list.count+'\\n(Material ilustrativo, NÃO contabilizado como YouTube)\\n\\n'+(list.files||[]).slice(0,12).map(x=>x.title+' | '+x.license+'\\n'+x.page).join('\\n\\n'))}catch(e){alert('Commons: '+e.message)}finally{commonsPool.disabled=false}};section.append(' ',commonsPool);
 const parts=document.createElement('button');parts.textContent='Ver capítulos';parts.onclick=async()=>{try{const info=await req('/api/factory/chapters/'+encodeURIComponent(p.id));alert(JSON.stringify(info,null,2))}catch(e){alert(e.message)}};section.append(' ',parts);
 if(p.status==='concluído'){const dl=document.createElement('a');dl.href='/api/projects/'+encodeURIComponent(p.id)+'/download/video';dl.textContent='Baixar MP4';section.append(' ',dl);
 const capcut=document.createElement('button');capcut.textContent='Preparar para CapCut';
@@ -437,6 +442,19 @@ capcut.onclick=async()=>{try{
 finally{capcut.disabled=false}};section.append(' ',capcut);
 if(storage.storage_configured){const arc=document.createElement('button');arc.textContent='Arquivar MP4';arc.onclick=async()=>{if(!confirm('Copiar este MP4 para o bucket? A operação pode gerar cobranças de armazenamento.'))return;try{const x=await req('/api/factory/archive/'+encodeURIComponent(p.id),{method:'POST'});alert(x.note||'Armazenado.');refresh()}catch(e){alert(e.message)}};section.append(' ',arc);
 const remote=document.createElement('a');remote.href='/api/factory/archive/'+encodeURIComponent(p.id)+'/download';remote.textContent='Baixar do bucket';section.append(' ',remote)}}
+if(p.status!=='concluído' && p.duration_minutes<=5){
+ const fallback=document.createElement('button');
+ fallback.textContent='Produzir teste com fontes licenciadas (sem exigir 70%)';
+ fallback.onclick=async()=>{try{
+  const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));
+  if(!plan.can_render_here){alert(plan.reason);return}
+  const ratio=await req('/api/youtube70/projects/'+encodeURIComponent(p.id)+'/mix');
+  if(!confirm('Este teste NÃO atingiu a meta de 70% YouTube. Está em '+ratio.actual_youtube_percent+'% YouTube verificado.\\n\\nProduzir usando os clipes disponíveis e Wikimedia Commons, com percentuais reais no relatório? Consome CPU e armazenamento no Railway.'))return;
+  await req('/api/factory/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:p.id,operation:'render_licensed'})});
+  refresh();
+ }catch(e){alert('Piloto licenciado: '+e.message)}};
+ section.append(' ',fallback);
+}
 if(p.status!=='concluído'){const button=document.createElement('button');button.textContent='Colocar na fila de produção';button.onclick=async()=>{
 try{const plan=await req('/api/factory/plan/'+encodeURIComponent(p.id));if(!plan.can_render_here){alert(plan.reason);return}
 if(!confirm('Iniciar a produção de '+p.title+'? Isso consome CPU, armazenamento e recursos da hospedagem.'))return;
