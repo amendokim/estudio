@@ -32,6 +32,11 @@ MAX_SECONDS=10
 MAX_SEARCHES=16
 MAX_SOURCE_USES=4
 LOCK=threading.RLock()
+LICENSED_PREVIEW_ACTIVE=set()
+
+def is_licensed_preview(pid):
+    with LOCK:return str(pid) in LICENSED_PREVIEW_ACTIVE
+
 STOP={"video","youtube","paraguai","brasil","sobre","documentario",
       "para","esta","essas","todos","entre","porque","quem","quando",
       "the","and","with","from","street","film","archive","footage"}
@@ -748,7 +753,8 @@ def install(studio):
         # Do not rewrite legacy/completed projects or disable other pipelines.
         if (project.get("status")!="concluído" and is_documentary(project)
             and os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1"
-            and (int(project.get("duration_minutes") or 0)<6 or
+            and ((int(project.get("duration_minutes") or 0)<6 and
+                  os.getenv("STUDIO_YOUTUBE70_SHORT_DYNAMIC","1")!="1") or
                  os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT","1")!="1")):
             use_sources(studio,pid)
             metric=count(studio.get_project(pid))
@@ -777,7 +783,11 @@ def install(studio):
             raise RuntimeError("Piloto alternativo limitado a 5 minutos neste trabalhador")
         import studio_licensed_archive as archive
         archive.fill_short_preview(studio,pid)
-        return previous_render(pid)
+        with LOCK: LICENSED_PREVIEW_ACTIVE.add(str(pid))
+        try:
+            return previous_render(pid)
+        finally:
+            with LOCK: LICENSED_PREVIEW_ACTIVE.discard(str(pid))
 
     studio.render_licensed_preview=licensed_preview
 
