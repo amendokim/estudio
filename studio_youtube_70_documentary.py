@@ -30,7 +30,7 @@ VERSION="youtube70-semantic-search-v3"
 TARGET=70
 MAX_SECONDS=10
 MAX_SEARCHES=16
-MAX_SOURCE_USES=2
+MAX_SOURCE_USES=4
 LOCK=threading.RLock()
 STOP={"video","youtube","paraguai","brasil","sobre","documentario",
       "para","esta","essas","todos","entre","porque","quem","quando",
@@ -360,6 +360,59 @@ def _media_duration(studio,path):
         return max(0.0,float(r.stdout.strip())) if r.returncode==0 else 0.0
     except (OSError,ValueError,subprocess.TimeoutExpired):return 0.0
 
+def _download_commons(studio,pid,source):
+    """Cache a verified Commons copy (never a YouTube stream).
+
+    Re-using different non-overlapping sections is legal only when the
+    independently hosted source carries a reusable licence. The Commons
+    candidate list verifies that before this function is reached.
+    """
+    url=str(source.get("url") or "")
+    if not url or not studio._approved_url(url,"wikimedia"):
+        return None
+    ext=Path(urlsplit(url).path).suffix.lower()
+    if ext not in (".mp4",".webm",".ogv",".ogg"):
+        return None
+    folder=studio.project_dir(pid)/"uploads"/"commons_verified"
+    folder.mkdir(parents=True,exist_ok=True)
+    dest=folder/(hashlib.sha256(url.encode()).hexdigest()[:24]+ext)
+    if dest.is_file() and _media_duration(studio,dest)>=4:
+        return str(dest.resolve().relative_to(Path(studio.MEDIA).resolve()))
+    if shutil.disk_usage(studio.DATA).free < 300*1048576:
+        return None
+    temp=dest.with_name(dest.stem+".partial"+ext)
+    temp.unlink(missing_ok=True)
+    try:
+        limit=35*1024*1024
+        total=0
+        with httpx.Client(timeout=35,follow_redirects=False) as client:
+            with client.stream("GET",url,headers={
+                    "User-Agent":"MeuEstudioIA/1.0 (https://github.com/amendokim/estudio; licensed video)"}) as response:
+                if response.status_code!=200:
+                    return None
+                length=int(response.headers.get("content-length") or 0)
+                if length>limit:return None
+                kind=str(response.headers.get("content-type") or "").split(";")[0]
+                if kind and kind not in ("video/webm","video/mp4","video/ogg",
+                                          "application/octet-stream"):
+                    return None
+                with temp.open("wb") as handle:
+                    for chunk in response.iter_bytes(chunk_size=1024*1024):
+                        total+=len(chunk)
+                        if total>limit: return None
+                        handle.write(chunk)
+        if total<5000 or _media_duration(studio,temp)<4:
+            return None
+        temp.replace(dest)
+        print("[youtube70] cached separately hosted Commons file: "+
+              str(total)+" bytes",flush=True)
+        return str(dest.resolve().relative_to(Path(studio.MEDIA).resolve()))
+    except (httpx.HTTPError,OSError,ValueError,subprocess.TimeoutExpired):
+        return None
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def _cut(studio,pid,source,scene,used):
     src=(Path(studio.MEDIA)/source["local"]).resolve()
     base=Path(studio.MEDIA).resolve()
@@ -421,13 +474,20 @@ def use_sources(studio,pid):
                     author=(source["author"]+" | autorização documentada")[:200]
                     url=""
                 else:
-                    local=""
+                    # Fetch only the independently licensed Commons copy and
+                    # cut distinct windows from it. Never fetch YouTube streams.
+                    cached=_download_commons(studio,pid,source)
                     provider="wikimedia"
                     author=(source["author"]+" | vídeo originalmente publicado no YouTube | licença CC")[:200]
-                    url=source["url"]
-                    # Independently hosted Commons asset; no YouTube stream.
-                    if not studio._approved_url(url,"wikimedia"):continue
-                    if counts[key]>=1:continue
+                    if cached:
+                        local=_cut(studio,pid,{**source,"local":cached},scene,counts[key])
+                        if not local:continue
+                        url=""
+                    else:
+                        if counts[key]>=1:continue
+                        local=""
+                        url=source["url"]
+                        if not studio._approved_url(url,"wikimedia"):continue
                 with studio.db() as db:
                     db.execute("""UPDATE scenes SET media_url=?,media_local=?,
                        media_kind='video',media_provider=?,source_page=?,author=?,thumb=''
@@ -534,13 +594,24 @@ def enrich_montage(studio,project,montage):
                     "source_page":source["source_page"],
                     "author":(source["author"]+" | autorização documentada")[:200]}
             else:
-                if counts[key]>=1:continue
-                if not studio._approved_url(source["url"],"wikimedia"):continue
-                asset={"media_local":"","media_url":source["url"],
-                    "media_provider":"wikimedia","media_kind":"video",
-                    "source_page":source["source_page"],
-                    "author":(source["author"]+
-                       " | vídeo originalmente publicado no YouTube")[:200]}
+                cached=_download_commons(studio,project["id"],source)
+                if cached:
+                    clip=_cut(studio,project["id"],{**source,"local":cached},
+                              {"duration":dur},counts[key])
+                    if not clip:continue
+                    asset={"media_local":clip,"media_url":"",
+                           "media_provider":"wikimedia","media_kind":"video",
+                           "source_page":source["source_page"],
+                           "author":(source["author"]+
+                              " | vídeo originalmente publicado no YouTube")[:200]}
+                else:
+                    if counts[key]>=1:continue
+                    if not studio._approved_url(source["url"],"wikimedia"):continue
+                    asset={"media_local":"","media_url":source["url"],
+                        "media_provider":"wikimedia","media_kind":"video",
+                        "source_page":source["source_page"],
+                        "author":(source["author"]+
+                           " | vídeo originalmente publicado no YouTube")[:200]}
             timeline["timeline"][i]["shots"][j]["asset"]=asset
             counts[key]+=1
             current["youtube_seconds"]+=dur
@@ -787,7 +858,7 @@ def self_test():
     p={"id":"smoke","scenes":[{"media_kind":"video","media_provider":"wikimedia",
         "media_url":"https://upload.wikimedia.org/test.webm",
         "source_page":"https://commons.wikimedia.org/wiki/File:Test",
-        "author":"originalmente publicado no YouTube","duration":7} for _ in range(8)]}
+        "author":"originalmente publicado no YouTube","duration":7} for _ in range(24)]}
     audited=count(p)
     assert audited["actual_youtube_percent"]==100
     assert audited["effective_youtube_percent"]<40
