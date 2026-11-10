@@ -135,10 +135,12 @@ def render(studio: Any, pid: str):
         # Long-form documentary percentages are verified against FINAL microtakes,
         # not the larger narration scenes. The YouTube70 module audits 70/30 below.
         import studio_youtube_70_documentary as doc70
+        licensed_preview=doc70.is_licensed_preview(pid)
         documentary_microshots=(doc70.is_documentary(p) and
             os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1" and
-            os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT","1")=="1")
-        if not documentary_microshots:
+            os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT","1")=="1" and
+            not licensed_preview)
+        if not documentary_microshots and not licensed_preview:
             _check_source_ratio(p)
         if not p.get("narration"):
             raise RuntimeError("Narração ausente; gere a narração antes da montagem")
@@ -336,9 +338,17 @@ def register(studio: Any):
 
     def render_with_checkpoints(pid: str):
         p = studio.get_project(pid)
-        if int(p.get("duration_minutes") or 0) < MIN_LONG_MINUTES:
+        minutes=int(p.get("duration_minutes") or 0)
+        # The short-documentary pilot needs real 4-8-second shots even though
+        # its original narration was divided into much longer scenes.
+        import studio_youtube_70_documentary as doc70
+        short_doc=(minutes<MIN_LONG_MINUTES and
+            os.getenv("STUDIO_YOUTUBE70_SHORT_DYNAMIC","1")=="1" and
+            os.getenv("STUDIO_LONGFORM_DYNAMIC_EDIT","1")=="1" and
+            doc70.is_documentary(p))
+        if minutes<MIN_LONG_MINUTES and not short_doc:
             return original(pid)
-        # Prevent an inadvertent long render on the 500MB Railway instance.
+        # Enforce the same capacity guard for short dynamic pilots.
         import studio_factory as factory
         capacity = factory.estimate(studio, p)
         if not capacity["can_render_here"]:
@@ -346,6 +356,7 @@ def register(studio: Any):
             return
         return render(studio, pid)
 
+    studio.original_short_render_task = original
     studio.render_task = render_with_checkpoints
 
     original_tts = studio.tts_task
