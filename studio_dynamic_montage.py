@@ -155,11 +155,28 @@ def build_plan(studio,project):
     used_extra=set()
     use_counts={}
     timeline=[]
+    # Commons can supply independently hosted, rights-filtered B-roll. These
+    # assets are never labeled as YouTube-origin without separate evidence.
+    try:
+        import studio_licensed_archive as archive
+        archive_assets=archive.discover(project)
+    except Exception as exc:
+        archive_assets=[]
+        print("[montage] licensed archive unavailable: "+type(exc).__name__,flush=True)
     with httpx.Client(timeout=13,follow_redirects=False) as client:
         elapsed=0.0
         for index,scene in enumerate(project["scenes"]):
             shot=plan["scenes"][index]
             pool=source_pool(studio,project,index,shot)
+            if archive_assets:
+                try:
+                    for asset in archive.matches_for_scene(scene,archive_assets):
+                        if len(pool)>=MAX_LOCAL_SHOTS:break
+                        if studio._approved_url(asset["media_url"],"wikimedia") and (
+                                identity(asset) not in {identity(x) for x in pool}):
+                            pool.append(asset)
+                except Exception:
+                    pass
             if len(pool)<MAX_LOCAL_SHOTS:
                 added=extra_pixabay(studio,shot,client,key,cache,used_extra)
                 for asset in added:
