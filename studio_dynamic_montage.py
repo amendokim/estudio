@@ -158,8 +158,17 @@ def build_plan(studio,project):
     # Commons can supply independently hosted, rights-filtered B-roll. These
     # assets are never labeled as YouTube-origin without separate evidence.
     try:
-        import studio_licensed_archive as archive
-        archive_assets=archive.discover(project)
+        import studio_youtube_70_documentary as doc70
+        strict_mix=(doc70.is_documentary(project) and
+            os.getenv("STUDIO_YOUTUBE70_STRICT","1")=="1" and
+            not doc70.is_licensed_preview(project.get("id")))
+        if strict_mix:
+            # Preserve the 30% Pexels/Pixabay share. The separate documentary
+            # enrichment phase adds verified YouTube-origin sources for 70%.
+            archive_assets=[]
+        else:
+            import studio_licensed_archive as archive
+            archive_assets=archive.discover(project)
     except Exception as exc:
         archive_assets=[]
         print("[montage] licensed archive unavailable: "+type(exc).__name__,flush=True)
