@@ -724,6 +724,60 @@ def enrich_montage(studio,project,montage):
             print(f"[youtube70] gentle retime of {retimed} verified shots; "
                   "stock seconds transferred without changing total runtime",
                   flush=True)
+    # The last fractional-second adjustment can be impossible to do inside
+    # one narration scene (some scenes contain only stock or only archive).
+    # Instead gently balance SHORT archive and stock shots in nearby scenes:
+    # <=0.24s per shot, <=0.35s change per narration scene. The overall runtime
+    # is exactly preserved. This is real frame playback time, never a metadata
+    # reclassification or repeated source segment.
+    missing=target_seconds+0.15-current["youtube_seconds"]
+    if 0 < missing <= 1.6:
+        archive=[]
+        stocks=[]
+        for ei,entry in enumerate(timeline.get("timeline") or []):
+            for shot in entry.get("shots") or []:
+                dur=float(shot.get("seconds") or 0)
+                asset=shot.get("asset") or {}
+                if is_youtube({**asset,"duration":dur}) and dur<=8.5:
+                    archive.append((ei,shot))
+                elif asset.get("media_provider") in ("pixabay","pexels") and dur>=1.75:
+                    stocks.append((ei,shot))
+        scene_delta=Counter()
+        adjusted=0
+        used_stock=set()
+        for yi,yshot in archive:
+            if missing<=0.012:break
+            original=float(yshot["seconds"])
+            choices=sorted(
+                ((abs(yi-si),si,ss) for si,ss in stocks
+                 if id(ss) not in used_stock and float(ss["seconds"])>1.5
+                 and (si==yi or scene_delta[si]>-0.349)),
+                key=lambda item:(item[0],item[1]))
+            for _,si,sshot in choices:
+                if yi!=si and scene_delta[yi]>=0.349:break
+                stockdur=float(sshot["seconds"])
+                capacity=(0.35-scene_delta[yi] if yi!=si else 0.25)
+                if yi!=si:capacity=min(capacity,0.35+scene_delta[si])
+                gain=min(missing,0.24,original*0.09,
+                         MAX_SECONDS-original,stockdur-1.35,capacity)
+                if gain<0.04:continue
+                yshot["seconds"]=round(original+gain,3)
+                sshot["seconds"]=round(stockdur-gain,3)
+                yshot["asset"]={**yshot["asset"],
+                    "time_stretch_factor":round((original+gain)/original*1.035,6)}
+                if yi!=si:
+                    scene_delta[yi]+=gain
+                    scene_delta[si]-=gain
+                used_stock.add(id(sshot))
+                current["youtube_seconds"]+=gain
+                missing-=gain
+                adjusted+=1
+                break
+        if adjusted:
+            print("[youtube70] truthful fine-balance: "+
+                  str(adjusted)+" gentle verified-archive retimes, max scene shift "+
+                  str(round(max((abs(x) for x in scene_delta.values()),default=0),3))+"s",
+                  flush=True)
     metric=montage_mix(timeline)
     metric["new_youtube_shots"]=replaced
     metric["documentary_target_youtube_percent"]=TARGET
