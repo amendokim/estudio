@@ -601,6 +601,44 @@ def install(studio):
             result["status"] = "completed"
         return result
 
+    # One-shot, owner-authorized production pilot. The DB claim is durable
+    # across Railway restarts; no automatic retry and no YouTube publication.
+    @studio.app.on_event("startup")
+    def start_approved_preview_once():
+        if os.getenv("STUDIO_V3_PILOT_ONCE", "0") != "1":
+            return
+        source_id = os.getenv("STUDIO_V3_PILOT_SOURCE_ID", "")
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", source_id):
+            print("[editor-v3] One-shot skipped: invalid project ID", flush=True)
+            return
+        try:
+            with studio.db() as conn:
+                conn.execute("""CREATE TABLE IF NOT EXISTS studio_editor_v3_once (
+                    project_id TEXT PRIMARY KEY, started_at TEXT NOT NULL)""")
+                claimed = conn.execute(
+                    "INSERT OR IGNORE INTO studio_editor_v3_once(project_id, started_at) "
+                    "VALUES(?, ?)", (source_id, _stamp()))
+            if claimed.rowcount != 1:
+                print("[editor-v3] Pilot already claimed; skipping", flush=True)
+                return
+            source = studio.get_project(source_id)
+            if source.get("status") != "concluído":
+                print("[editor-v3] Source not completed; pilot not started", flush=True)
+                return
+            option = os.getenv("STUDIO_V3_PILOT_VISION", "0") == "1"
+            _state(source_id, status="planning", progress=0,
+                   started=_stamp(), vision_requested=option)
+            threading.Thread(
+                target=_do,
+                args=(studio, source_id, PreviewRequest(
+                    duration_seconds=90, use_vision=option)),
+                daemon=True, name="editor-v3-authorized-pilot").start()
+            print("[editor-v3] Authorized 90s preview started, vision=" +
+                  str(option), flush=True)
+        except Exception as exc:
+            print("[editor-v3] Startup pilot unavailable: " +
+                  type(exc).__name__ + ": " + str(exc)[:160], flush=True)
+
     @studio.app.get("/api/editor-v3/projects/{pid}/video")
     def preview_video(pid: str):
         studio.get_project(pid)
