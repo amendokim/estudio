@@ -528,6 +528,11 @@ def _do(studio, pid, request):
             _state(pid, status="completed", progress=100, quality=qa,
                    video_url=f"/api/editor-v3/projects/{pid}/video",
                    file_bytes=file.stat().st_size)
+            print("[editor-v3] COMPLETE " + json.dumps({
+                "project_id": pid, "duration": round(_seconds(studio, file), 2),
+                "shots": qa["shots"], "distinct_sources": qa["distinct_sources"],
+                "approved": qa["approved"], "vision_requested": request.use_vision,
+                "bytes": file.stat().st_size}), flush=True)
         finally:
             RENDER_LOCK.release()
     except Exception as exc:
@@ -614,9 +619,36 @@ def install(studio):
     # across Railway restarts; no automatic retry and no YouTube publication.
     @studio.app.on_event("startup")
     def start_approved_preview_once():
+        source_id = os.getenv("STUDIO_V3_PILOT_SOURCE_ID", "")
+        if re.fullmatch(r"[0-9a-fA-F-]{36}", source_id):
+            try:
+                folder = _folder(studio, source_id)
+                exported = folder / "quality_v3_preview.mp4"
+                report_file = folder / "editorial_plan.json"
+                quality = {}
+                if report_file.is_file():
+                    report = json.loads(report_file.read_text(encoding="utf-8"))
+                    quality = report.get("quality") or {}
+                if exported.is_file():
+                    duration = _seconds(studio, exported)
+                    print("[editor-v3] VERIFIED_EXPORT " + json.dumps({
+                        "project_id": source_id,
+                        "file_exists": True,
+                        "bytes": exported.stat().st_size,
+                        "duration": round(duration, 2),
+                        "approved": quality.get("approved"),
+                        "shots": quality.get("shots"),
+                        "distinct_sources": quality.get("distinct_sources"),
+                    }), flush=True)
+                else:
+                    print("[editor-v3] VERIFIED_EXPORT not available; "
+                          "quality report exists=" + str(report_file.is_file()),
+                          flush=True)
+            except Exception as exc:
+                print("[editor-v3] Existing preview check failed: " +
+                      type(exc).__name__, flush=True)
         if os.getenv("STUDIO_V3_PILOT_ONCE", "0") != "1":
             return
-        source_id = os.getenv("STUDIO_V3_PILOT_SOURCE_ID", "")
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", source_id):
             print("[editor-v3] One-shot skipped: invalid project ID", flush=True)
             return
