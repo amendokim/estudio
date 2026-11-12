@@ -1,0 +1,48 @@
+name: Editor V3 checks
+on:
+  push:
+    branches: [feat/editorial-v3-quality-pilot]
+  pull_request:
+    paths:
+      - studio_editor_v3_preview.py
+      - Dockerfile
+      - .github/workflows/editor-v3-checks.yml
+jobs:
+  editor-v3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt
+      - name: Compile and test editor
+        run: |
+          python -m py_compile studio_editor_v3_preview.py
+          python - <<'PY'
+          import studio_editor_v3_preview as v3
+          v3.self_test()
+          bad = {"duration_seconds": 90, "timeline": [
+              {"shots": [{"seconds": 90, "asset": {"media_provider": "original",
+                "media_url": "same"}}]}]}
+          assert not v3._qa(bad, False)["approved"]
+          print("Quality gate rejected artificial static coverage")
+          PY
+      - name: FFmpeg moving crop smoke test
+        run: |
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=s=640x360:r=24:d=6 -an -c:v libx264 -pix_fmt yuv420p /tmp/source.mp4
+          python - <<'PY'
+          from pathlib import Path
+          from types import SimpleNamespace
+          import studio_editor_v3_preview as v3
+          studio = SimpleNamespace(FFMPEG="ffmpeg", FFPROBE="ffprobe")
+          shot = {"path": "/tmp/source.mp4", "seconds": 4.0, "style": "subtle_pan"}
+          target = Path("/tmp/editor-v3-shot.mp4")
+          v3._shot_render(studio, shot, 2, target)
+          assert target.is_file() and v3._seconds(studio, target) > 3.7
+          print("Rendered a real moving-crop shot", target.stat().st_size)
+          PY

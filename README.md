@@ -2,6 +2,16 @@
 
 > **Projeto independente e pessoal**, construído do zero. Não contém código privado, identidade visual, marcas ou bases de dados de concorrentes. A página do produto de referência não pôde ser auditada por dentro. Portanto, não é uma cópia exata nem há garantia de equivalência de todas as funções.
 
+## Editor V3 — piloto isolado de 90 segundos (em avaliação)
+
+- Depois de disponibilizado, abra `/editor-v3` no mesmo domínio do estúdio e escolha um **projeto já concluído** com pelo menos 90 segundos de narração.
+- Clique em **Produzir prévia**. O sistema reutiliza a narração e os arquivos de origem do projeto, procura vídeos licenciados adicionais no Pixabay, cria tomadas de cerca de 3–5 segundos, aplica movimentação real de câmera e legendas, e exporta uma prévia de 1280×720.
+- **Analisar quadros com Gemini** é uma opção separada, desmarcada inicialmente. Com ela, o sistema envia quadros amostrados das mídias para o Gemini e limita a análise a **16 chamadas por prévia**; podem ocorrer cobranças na sua API. Uma amostra de quadro não substitui a inspeção do vídeo completo.
+- A prévia é reprovada quando há poucas fontes distintas, mídia ausente, cenas longas demais, falha de sincronização ou cobertura visual insuficiente. Não reivindica edição humana perfeita ou verificação factual automática.
+- O arquivo é salvo separado do vídeo original em `export/editor_v3_pilot/quality_v3_preview.mp4`, acompanhado de `editorial_plan.json` com as fontes e o relatório de qualidade. **Nenhum vídeo é publicado no YouTube**.
+- **Requisitos:** um projeto concluído com narração, vídeo de apoio com licença utilizável, `PIXABAY_API_KEY` para ampliar a busca e pelo menos 850 MB livres no volume. O render exige CPU e armazenamento Railway, mas não chama APIs pagas automaticamente enquanto a opção Gemini estiver desmarcada.
+- Este módulo **não substitui** o editor atual nem muda os agendamentos de canais. Ele existe para aprovar ou rejeitar a qualidade visual antes da integração ao pipeline principal.
+
 ## Fábrica de documentários (fila persistente)
 
 Acesse `/fabrica` no mesmo domínio do estúdio, após fazer login. A interface consulta `/api/factory/status` e `/api/factory/jobs`, mostra a fila e pode solicitar **lotes de roteiros**. Os jobs ficam em SQLite no volume persistente e são retomados após uma reinicialização (uma tentativa adicional); uma thread executa **um job por vez**, adequada apenas a **uma réplica**.

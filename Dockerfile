@@ -84,6 +84,8 @@ COPY studio_paraguai_v2_rescue.py /app/studio_paraguai_v2_rescue.py
 RUN python -m py_compile /app/studio_paraguai_v2_rescue.py && python /app/studio_paraguai_v2_rescue.py
 COPY studio_youtube_70_documentary.py /app/studio_youtube_70_documentary.py
 RUN python -m py_compile /app/studio_youtube_70_documentary.py && python /app/studio_youtube_70_documentary.py
+COPY studio_editor_v3_preview.py /app/studio_editor_v3_preview.py
+RUN python -m py_compile /app/studio_editor_v3_preview.py && python /app/studio_editor_v3_preview.py
 EXPOSE 8000
 COPY cleanup_rendered_tests_once.py /app/cleanup_rendered_tests_once.py
 RUN python -m py_compile /app/cleanup_rendered_tests_once.py
