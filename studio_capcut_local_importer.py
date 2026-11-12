@@ -234,7 +234,7 @@ def make_draft(*,drafts_dir,allow_subtitles=False,open_app=False):
             pass
 
     narration=cc.AudioMaterial(str(voice))
-    length=min(duration,float(narration.duration)/cc.SEC)
+    length=min(float(scenes[-1]["fim_s"]),float(narration.duration)/cc.SEC)
     if length<3:
         raise RuntimeError("A narração não contém duração suficiente")
     speech=cc.AudioSegment(str(voice),
