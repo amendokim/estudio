@@ -41,6 +41,7 @@ RESULTS = {}
 class PrepareRequest(BaseModel):
     max_scenes: int = Field(default=8, ge=1, le=MAX_SCENES)
     ai_images: int = Field(default=0, ge=0, le=MAX_IMAGES)
+    ai_direction: bool = False
 
 def stamp():
     return datetime.now(timezone.utc).isoformat()
@@ -282,6 +283,50 @@ def _ai_illustration(client, scene, destination):
                 return dest
     raise RuntimeError("Gemini não retornou imagem")
 
+def _direction(project,scenes):
+    """One explicit paid Gemini text call for visual brief, bounded to 12 scenes."""
+    if not os.getenv("GEMINI_API_KEY"):
+        raise RuntimeError("GEMINI_API_KEY ausente")
+    from studio_factory import gemini_json
+    raw = []
+    for idx,scene in enumerate(scenes,1):
+        raw.append({"index":idx, "text":_clean(scene.get("text")),
+                    "existing_query":_clean(scene.get("query"))})
+    prompt = ("You are a documentary VISUAL DIRECTOR. Return ONLY JSON with key 'scenes': "
+      "an array of one entry per input, each with integer index, English image "
+      "search_query (3-7 concrete words, including names of places if mentioned), "
+      "short factual on_screen label (max 5 words), and a visual_kind from "
+      "['video','photo','map','graphic','illustration']. "
+      "Only suggest imagery faithful to the EXACT spoken text. Prefer real "
+      "footage of named locations; if none likely, use map/graphic. "
+      "Never invent fake visual evidence, fabricated protests or public figures. "
+      "Keep text factual, use no generic unrelated business footage. "
+      "Video title: "+_clean(project.get("title"))+"\nScenes: "+
+      json.dumps(raw,ensure_ascii=False))
+    response=gemini_json(prompt)
+    result={}
+    entries=response.get("scenes") or []
+    if not isinstance(entries,list):
+        raise RuntimeError("Director returned invalid scenes")
+    for item in entries:
+        if not isinstance(item,dict):
+            continue
+        idx=item.get("index")
+        query=_clean(item.get("search_query"))
+        kind=str(item.get("visual_kind") or "")
+        label=_clean(item.get("on_screen"))[:65]
+        if (isinstance(idx,int) and 1<=idx<=len(scenes) and len(query)>4
+                and len(query)<100 and kind in
+                ("video","photo","map","graphic","illustration")):
+            # Named geographic entities must be present in the search query.
+            originals=_tags(scenes[idx-1].get("text") or "")
+            targets=_tags(query)
+            named=originals & {"paraguay","brazil","argentina","bolivia","ciudad"}
+            if named and not named <= targets:
+                continue
+            result[idx]={"query":query,"kind":kind,"label":label}
+    return result
+
 def _prepare(studio, pid, request):
     path = folder(studio, pid)
     project = studio.get_project(pid)
@@ -293,10 +338,19 @@ def _prepare(studio, pid, request):
     budget = {"bytes": 0}
     used = set()
     ai_left = request.ai_images
+    direction={}
+    if request.ai_direction:
+        try:
+            direction=_direction(project,scenes)
+        except (RuntimeError,ValueError,KeyError,httpx.HTTPError) as err:
+            print("[capcut-v2] AI direction unavailable: "+type(err).__name__,flush=True)
     with httpx.Client(headers={"User-Agent":"MeuEstudioIA/2.0 (CapCut media credits)"}) as client:
         for idx, scene in enumerate(scenes,1):
-            query = _term(scene, str(project.get("title") or ""))
-            state = dict(scene=idx, query=query, status="missing", type="",
+            brief=direction.get(idx) or {}
+            query = brief.get("query") or _term(scene, str(project.get("title") or ""))
+            state = dict(scene=idx, query=query, visual_kind=brief.get("kind",""),
+                         on_screen=brief.get("label",""),
+                         status="missing", type="",
                          source="", file="", title="", page="", license="", author="",
                          illustration=False)
             pool = (_pexels(client,query,os.getenv("PEXELS_API_KEY","")) +
@@ -345,6 +399,7 @@ def _prepare(studio, pid, request):
     plan = {"version":VERSION,"project_id":pid,"created_at":stamp(),
             "scenes":prepared,"bytes_downloaded":budget["bytes"],
             "ai_images_created":sum(x["source"]=="gemini_image" for x in prepared),
+            "ai_direction_used":bool(direction),
             "missing_scenes":[x["scene"] for x in prepared if x["status"]!="ready"],
             "sources":sorted(set(x["source"] for x in prepared if x["source"]))}
     tmp = path / "plan.tmp"
@@ -379,6 +434,7 @@ small{color:#b5c5dc}a{color:#9cc9ff}pre{white-space:pre-wrap;overflow-wrap:anywh
 <p>Seleciona vídeos e fotos relevantes de fontes licenciadas. Quando solicitado, gera até 2 ilustrações por IA, com cobrança na API Gemini.</p>
 <section><label>ID do projeto: <input id="pid" size="42" placeholder="UUID do projeto"></label>
 <label>Cenas: <select id="count"><option>4</option><option selected>8</option><option>12</option></select></label>
+<label><input type="checkbox" id="director"> Dirigir cenas com Gemini (1 chamada paga)</label>
 <label><input type="checkbox" id="ai"> Gerar até 2 imagens conceituais com Gemini (pago)</label>
 <label>Senha do Estúdio: <input id="password" type="password"></label>
 <button onclick="start()">Preparar mídias (não renderiza)</button></section>
@@ -390,7 +446,7 @@ small{color:#b5c5dc}a{color:#9cc9ff}pre{white-space:pre-wrap;overflow-wrap:anywh
 const base='/api/capcut-v2/projects/';
 const pid=()=>document.getElementById('pid').value.trim();
 const out=x=>document.getElementById('out').textContent=typeof x==='string'?x:JSON.stringify(x,null,2);
-async function start(){try{let r=await fetch(base+encodeURIComponent(pid())+'/prepare',{method:'POST',headers:{'Content-Type':'application/json','X-Studio-Password':document.getElementById('password').value},body:JSON.stringify({max_scenes:Number(document.getElementById('count').value),ai_images:document.getElementById('ai').checked?2:0})});out(await r.json())}catch(e){out(e.message)}}
+async function start(){try{let r=await fetch(base+encodeURIComponent(pid())+'/prepare',{method:'POST',headers:{'Content-Type':'application/json','X-Studio-Password':document.getElementById('password').value},body:JSON.stringify({max_scenes:Number(document.getElementById('count').value),ai_images:document.getElementById('ai').checked?2:0,ai_direction:document.getElementById('director').checked})});out(await r.json())}catch(e){out(e.message)}}
 async function status(){try{let r=await fetch(base+encodeURIComponent(pid())+'/status');out(await r.json())}catch(e){out(e.message)}}
 function download(){window.location='/api/capcut/projects/'+encodeURIComponent(pid())+'/download'}
 </script></html>"""
@@ -417,6 +473,7 @@ def install(studio):
         threading.Thread(target=_work,args=(studio,pid,request),daemon=True).start()
         return {"status":"queued","project_id":pid,
                 "paid_image_calls_max":request.ai_images,
+                "paid_direction_calls_max":1 if request.ai_direction else 0,
                 "download_url":f"/api/capcut/projects/{pid}/download"}
 
     @studio.app.get("/api/capcut-v2/projects/{pid}/status")
