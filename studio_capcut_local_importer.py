@@ -119,63 +119,182 @@ def make_draft(*,drafts_dir,allow_subtitles=False,open_app=False):
     # 16:9 to match the generated narration/captions and CapCut preview.
     aspect=str(info.get("ratio") or "16:9")
     w,h=(960,540) if aspect=="16:9" else (540,960)
+    # All V2 elements are real editable CapCut tracks. The legacy MP4 remains
+    # a muted fallback ONLY where no separate source survived / was prepared.
     script=folder.create_draft(draft_name,w,h,30,maintrack_adsorb=False)
-    script.add_track(cc.TrackType.video, "Video base")
-    script.add_track(cc.TrackType.video, "B-rolls editaveis",relative_index=2)
-    script.add_track(cc.TrackType.audio, "Narracao")
+    script.add_track(cc.TrackType.video, "01 · Salvaguarda do video original",relative_index=0)
+    script.add_track(cc.TrackType.video, "02 · B-roll real e arquivo",relative_index=1)
+    script.add_track(cc.TrackType.video, "03 · Ilustracoes IA declaradas",relative_index=2)
+    script.add_track(cc.TrackType.text, "04 · Titulos e informacoes")
+    script.add_track(cc.TrackType.text, "05 · Avisos sobre imagens IA")
+    script.add_track(cc.TrackType.audio, "06 · Narracao")
+    script.add_track(cc.TrackType.audio, "07 · Trilha licenciada")
     used=0
-    overlay_count=0
-    # Original complete export is a safe placeholder. Each shot becomes an
-    # independent editable clip from the corresponding time in that export.
-    # Its embedded captions/music are not magically restored as raw elements.
+    real_count=0
+    ai_count=0
+    missing_count=0
+    fade_count=0
+    # A base has already been exported; keep it for missing-file scenes only.
     for scene in scenes:
         start=float(scene["inicio_s"])
         end=float(scene["fim_s"])
+        duration=end-start
         target=cc.trange_seconds(start,end=end)
         source=cc.trange_seconds(start,end=end)
-        clip=cc.VideoSegment(str(base),target,source_timerange=source,
-                             volume=0.0)
-        script.add_segment(clip,"Video base")
+        base_clip=cc.VideoSegment(str(base),target,source_timerange=source,
+                                  volume=0.0)
+        script.add_segment(base_clip,"01 · Salvaguarda do video original")
         used+=1
-        rel=scene.get("arquivo_local_no_zip") or ""
-        local=valid_entry(rel)
-        if not local or local.suffix.lower() not in VIDEO_EXT or local==base:
+        local=valid_entry(scene.get("arquivo_local_no_zip") or "")
+        is_ai=str(scene.get("v2_illustration") or "").lower()=="true"
+        if not local or local==base or local.suffix.lower() not in VIDEO_EXT|IMAGE_EXT:
+            missing_count+=1
             continue
         try:
-            material=cc.VideoMaterial(str(local))
-            source_seconds=float(material.duration)/cc.SEC
-            clip_seconds=min(end-start,source_seconds)
-            if clip_seconds<.75:
-                continue
-            broll=cc.VideoSegment(
-                str(local),cc.trange_seconds(start,duration=clip_seconds),
-                source_timerange=cc.trange_seconds(0,duration=clip_seconds),
-                volume=0.0)
-            script.add_segment(broll,"B-rolls editaveis")
-            overlay_count+=1
-        except (OSError,ValueError,RuntimeError):
-            # Archive contains some 3rd party formats not understood by the
-            # local editor; retain safe base fallback for that scene.
+            target_track=("03 · Ilustracoes IA declaradas" if is_ai
+                          else "02 · B-roll real e arquivo")
+            if local.suffix.lower() in VIDEO_EXT:
+                material=cc.VideoMaterial(str(local))
+                available=float(material.duration)/cc.SEC
+                # Never stretch or loop a short source just to fill narration.
+                usable=min(duration,available)
+                if usable<0.8:
+                    missing_count+=1
+                    continue
+                segments=[(start, usable, 0.0)]
+                # One source can have two distinct short edits, but never
+                # repeat the same source time window to fake extra footage.
+                if usable>=6.0:
+                    split=round(usable*0.52,3)
+                    segments=[(start,split,0.0),(start+split,usable-split,split)]
+                for target_start,clip_duration,source_start in segments:
+                    clip=cc.VideoSegment(str(local),
+                        cc.trange_seconds(target_start,duration=clip_duration),
+                        source_timerange=cc.trange_seconds(
+                            source_start,duration=clip_duration),volume=0.0)
+                    # Editable fade keyframes instead of baked effects.
+                    if clip_duration>=2.0:
+                        ease=min(0.22,clip_duration/8)
+                        clip.add_keyframe(cc.KeyframeProperty.alpha,0,0.1)
+                        clip.add_keyframe(cc.KeyframeProperty.alpha,
+                                          int(ease*cc.SEC),1.0)
+                        clip.add_keyframe(cc.KeyframeProperty.alpha,
+                                          int((clip_duration-ease)*cc.SEC),1.0)
+                        clip.add_keyframe(cc.KeyframeProperty.alpha,
+                                          int(clip_duration*cc.SEC),0.1)
+                        fade_count+=1
+                    script.add_segment(clip,target_track)
+            else:
+                # pyCapCut supports still images as VideoSegment media.
+                visual=cc.VideoSegment(str(local),target,volume=0.0)
+                if duration>=2.0:
+                    visual.add_keyframe(cc.KeyframeProperty.alpha,0,0.0)
+                    visual.add_keyframe(cc.KeyframeProperty.alpha,
+                                        int(.3*cc.SEC),1.0)
+                    visual.add_keyframe(cc.KeyframeProperty.alpha,
+                                        int((duration-.3)*cc.SEC),1.0)
+                    visual.add_keyframe(cc.KeyframeProperty.alpha,
+                                        int(duration*cc.SEC),0.0)
+                    fade_count+=1
+                script.add_segment(visual,target_track)
+            if is_ai:
+                ai_count+=1
+                mark=cc.TextSegment("ILUSTRACAO GERADA POR IA",
+                    cc.trange_seconds(start,duration=min(duration,8.0)),
+                    style=cc.TextStyle(size=5.0,color=(1.0,.85,.4)),
+                    clip_settings=cc.ClipSettings(transform_y=-0.82))
+                script.add_segment(mark,"05 · Avisos sobre imagens IA")
+            else:
+                real_count+=1
+        except (OSError,ValueError,RuntimeError,AttributeError,TypeError) as exc:
+            missing_count+=1
+            print("Aviso: fonte da cena nao pode ser importada:",scene["cena"],
+                  type(exc).__name__)
+
+    # Original editorial chapter cards are native, editable CapCut texts.
+    chapter_count=0
+    for index,scene in enumerate(scenes):
+        if index not in (0,5,10,15) and index%15!=0:
             continue
+        start=float(scene["inicio_s"])
+        span=min(3.6,float(scene["fim_s"])-start)
+        if span<1.0:
+            continue
+        heading=(info.get("project_title") if index==0 else
+                 scene.get("texto_narrado") or "Nova etapa")
+        heading=" ".join(str(heading).split())[:68].upper()
+        try:
+            t=cc.TextSegment(heading,cc.trange_seconds(start,duration=span),
+                style=cc.TextStyle(size=8.0,color=(1.0,1.0,1.0),
+                                   auto_wrapping=True,max_line_width=.78),
+                clip_settings=cc.ClipSettings(transform_y=0.55))
+            script.add_segment(t,"04 · Titulos e informacoes")
+            chapter_count+=1
+        except (ValueError,TypeError,RuntimeError,AttributeError):
+            pass
+
+    # Factual short callouts from the optional editorial director.
+    callout_count=0
+    for scene in scenes:
+        note=" ".join(str(scene.get("v2_label") or "").split())[:65]
+        if not note:
+            continue
+        begin=float(scene["inicio_s"])+.35
+        available=float(scene["fim_s"])-begin
+        if available < 1.0:
+            continue
+        try:
+            item=cc.TextSegment(note.upper(),
+                cc.trange_seconds(begin,duration=min(2.8,available)),
+                style=cc.TextStyle(size=5.7,color=(1.,1.,1.),
+                    auto_wrapping=True,max_line_width=.75),
+                clip_settings=cc.ClipSettings(transform_y=.65))
+            script.add_segment(item,"04 · Titulos e informacoes")
+            callout_count+=1
+        except (ValueError,RuntimeError,AttributeError,TypeError):
+            pass
+
     narration=cc.AudioMaterial(str(voice))
-    length=min(duration,float(narration.duration)/cc.SEC)
+    length=min(float(scenes[-1]["fim_s"]),float(narration.duration)/cc.SEC)
     if length<3:
         raise RuntimeError("A narração não contém duração suficiente")
-    script.add_segment(
-        cc.AudioSegment(str(voice),cc.trange_seconds(0,duration=length)),
-        "Narracao")
+    speech=cc.AudioSegment(str(voice),
+                          cc.trange_seconds(0,duration=length),volume=1.0)
+    script.add_segment(speech,"06 · Narracao")
+    # Professionally licensed local music can be added to the package folder.
+    # The old synthetic soundtrack is purposefully NOT imported by default.
+    score=valid_entry("06_trilha_profissional/trilha_licenciada.mp3")
+    music_added=False
+    if score:
+        sound=cc.AudioMaterial(str(score))
+        score_length=min(length,float(sound.duration)/cc.SEC)
+        if score_length>=3.0:
+            bed=cc.AudioSegment(str(score),
+                cc.trange_seconds(0,duration=score_length),volume=0.12)
+            bed.add_fade("2s","2s")
+            script.add_segment(bed,"07 · Trilha licenciada")
+            music_added=True
+
     captions_added=False
-    # The video base already contains burned captions. Optional import
-    # creates editable SRT captions but they will overlay the baked ones.
     if allow_subtitles and captions:
-        script.import_srt(str(captions),track_name="Legendas editaveis")
+        script.import_srt(str(captions),
+            track_name="08 · Legendas editaveis",
+            text_style=cc.TextStyle(size=8.0,color=(1.,1.,1.),
+                                    auto_wrapping=True,max_line_width=.77),
+            clip_settings=cc.ClipSettings(transform_y=-.77))
         captions_added=True
     script.save()
     print("\nRASCUNHO CRIADO COM SUCESSO")
     print("Nome:",draft_name)
     print("Pasta:",drafts_dir)
     print("Cenas cortadas no video base:",used)
-    print("B-rolls separados adicionados:",overlay_count)
+    print("B-rolls reais adicionados:",real_count)
+    print("Ilustracoes de IA declaradas:",ai_count)
+    print("Cenas no fallback antigo:",missing_count)
+    print("Transicoes de opacidade editaveis:",fade_count)
+    print("Cartelas de capitulo:",chapter_count)
+    print("Chamadas editoriais:",callout_count)
+    print("Trilha profissional propria:",music_added)
     print("Narração em trilha própria:",bool(voice))
     print("Legendas editáveis:",captions_added)
     print("\nIMPORTANTE: algumas tomadas usam a versão final cortada porque")

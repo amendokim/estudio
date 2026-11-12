@@ -84,6 +84,8 @@ COPY studio_paraguai_v2_rescue.py /app/studio_paraguai_v2_rescue.py
 RUN python -m py_compile /app/studio_paraguai_v2_rescue.py && python /app/studio_paraguai_v2_rescue.py
 COPY studio_youtube_70_documentary.py /app/studio_youtube_70_documentary.py
 RUN python -m py_compile /app/studio_youtube_70_documentary.py && python /app/studio_youtube_70_documentary.py
+COPY studio_capcut_v2_media.py /app/studio_capcut_v2_media.py
+RUN python -m py_compile /app/studio_capcut_v2_media.py && python /app/studio_capcut_v2_media.py
 COPY studio_editor_v3_preview.py /app/studio_editor_v3_preview.py
 RUN python -m py_compile /app/studio_editor_v3_preview.py && python /app/studio_editor_v3_preview.py
 EXPOSE 8000

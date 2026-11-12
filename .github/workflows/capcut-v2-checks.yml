@@ -1,0 +1,33 @@
+name: CapCut V2 - offline media and native draft
+on:
+  push:
+    branches: [feat/capcut-v2-media-fusion]
+  pull_request:
+    paths:
+      - 'studio_capcut_v2_media.py'
+      - 'studio_capcut_export.py'
+      - 'studio_capcut_local_importer.py'
+      - 'tests/test_capcut_v2_draft.py'
+      - 'Dockerfile'
+      - '.github/workflows/capcut-v2-checks.yml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install local pyCapCut and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install pycapcut fastapi httpx pydantic
+      - name: Validate Python and media enrichment guardrails
+        run: |
+          python -m py_compile studio_capcut_v2_media.py studio_capcut_export.py studio_capcut_local_importer.py tests/test_capcut_v2_draft.py
+          python -c "import studio_capcut_v2_media as x; x.self_test()"
+      - name: Build a native CapCut draft from synthetic footage (zero API calls)
+        run: python tests/test_capcut_v2_draft.py
