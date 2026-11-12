@@ -206,6 +206,44 @@ def _gather(studio,project):
             "arquivo_no_zip":local_name})
         start+=seconds
 
+    # Add V2-approved real clips / clearly labeled AI illustrations as editable
+    # source assets, rather than falling back to the previously rendered MP4.
+    v2_plan_path = root/"capcut_v2"/"plan.json"
+    v2_plan = None
+    if v2_plan_path.is_file():
+        try:
+            read_plan=json.loads(v2_plan_path.read_text(encoding="utf-8"))
+            if (read_plan.get("version")=="capcut-media-fusion-v2" and
+                    read_plan.get("project_id")==pid):
+                v2_plan=read_plan
+                for record in read_plan.get("scenes",[]):
+                    index=int(record.get("scene") or 0)
+                    if not 1<=index<=len(rows) or record.get("status")!="ready":
+                        continue
+                    filename=Path(str(record.get("file") or "")).name
+                    if not filename or filename!=record.get("file"):
+                        continue
+                    original=root/"capcut_v2"/filename
+                    if not original.is_file():
+                        continue
+                    arc=f"03_midias_locais/v2_{index:03d}_{filename}"
+                    if add(original,arc):
+                        rows[index-1]["arquivo_local_no_zip"]=arc
+                        rows[index-1]["origem_usada"]=str(record.get("source") or "")[:50]
+                        rows[index-1]["v2_illustration"]=bool(record.get("illustration"))
+                        rows[index-1]["v2_media_type"]=str(record.get("type") or "")
+                        licenses.append({"cena":index,
+                            "origem":record.get("source") or "",
+                            "pagina_da_fonte":record.get("page") or "",
+                            "credito":record.get("author") or "",
+                            "arquivo_no_zip":arc,
+                            "licenca":record.get("license") or "",
+                            "licenca_url":record.get("license_url") or ""})
+        except (OSError,ValueError,TypeError,KeyError) as exc:
+            print("[capcut-export] V2 assets not included: "+
+                  type(exc).__name__,flush=True)
+            v2_plan=None
+
     # Deduplicate and size-bound the whole package. Preserve audio/captions,
     # then scene assets in directory order; don't silently remove essential data.
     prioritized=sorted(files.items(),key=lambda kv:
@@ -243,7 +281,11 @@ def _gather(studio,project):
         "important":"Portable media handoff, NOT a native CapCut editable project. "
                     "Clips and narration need importing and placement on timeline.",
         "rights":"Licences/attributions must be checked before publication. "
-                 "The pack contains only files already stored for this project."
+                 "The pack contains only files already stored for this project.",
+        "capcut_v2_assets": bool(v2_plan),
+        "v2_editable_source_count":sum(
+            1 for row in rows if str(row.get("arquivo_local_no_zip") or "").startswith(
+                "03_midias_locais/v2_"))
     }
     instructions=(
       "ESTÚDIO IA — PACOTE DE EDIÇÃO PARA CAPCUT\n\n"
@@ -279,6 +321,9 @@ def _gather(studio,project):
       "04_plano/roteiro.txt":("\n\n".join(f"[{i+1:03d}] {x.get('text') or ''}"
           for i,x in enumerate(scenes))+"\n").encode("utf-8"),
     }
+    if v2_plan:
+        metadata["04_plano/plano_capcut_v2.json"]=json.dumps(
+            v2_plan,ensure_ascii=False,indent=2).encode("utf-8")
     if missing:
         metadata["04_plano/arquivos_para_revisar.txt"]=(
             "\n".join(missing)+"\n").encode("utf-8")
@@ -292,7 +337,7 @@ def _gather(studio,project):
             "@echo off\r\n"
             "cd /d \"%~dp0\"\r\n"
             "echo Criar rascunho CapCut Desktop - primeiro FECHE o CapCut.\r\n"
-            "echo Requer Python e pycapcut==0.0.4.\r\n"
+            "echo Requer Python e pycapcut.\r\n"
             "py -3 IMPORTAR_NO_CAPCUT.py\r\n"
             "pause\r\n").encode("utf-8")
         metadata["IMPORTAR_NO_CAPCUT_MAC.command"]=(
@@ -304,13 +349,13 @@ def _gather(studio,project):
         metadata["LEIA_COMO_CRIAR_RASCUNHO.txt"]=(
             "CAPCUT DESKTOP (Windows/macOS) - RASCUNHO EDITÁVEL EXPERIMENTAL\n\n"
             "1. Instale Python 3.11+ se não tiver.\n"
-            "2. Execute no terminal: python -m pip install pycapcut==0.0.4\n"
+            "2. Execute no terminal: python -m pip install pycapcut\n"
             "   No macOS use python3.\n"
             "3. Feche o CapCut Desktop. Descompacte e mantenha esta pasta.\n"
             "4. Windows: clique IMPORTAR_NO_CAPCUT_WINDOWS.bat.\n"
             "   macOS: rode python3 IMPORTAR_NO_CAPCUT.py no Terminal.\n"
             "5. Reabra o CapCut e procure pelo novo rascunho 'Estudio IA - ...'.\n"
-            "6. O rascunho terá vídeo base cortado por cena e narração independente.\n"
+            "6. O V2 utiliza clipes/fotos originais em faixas editáveis quando disponíveis.\n"
             "   B-rolls originais somente onde arquivos separados estão disponíveis.\n"
             "7. Não exclua nem mova esta pasta depois de importar: caminhos\n"
             "   dos materiais referenciam os arquivos extraídos.\n\n"
