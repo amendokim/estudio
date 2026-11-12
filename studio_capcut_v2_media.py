@@ -104,7 +104,8 @@ def _approved(url):
         return (u.scheme == "https" and u.port in (None, 443) and
             not u.username and not u.password and host in {
                 "videos.pexels.com", "images.pexels.com", "cdn.pixabay.com",
-                "upload.wikimedia.org", "images.pixabay.com"})
+                "upload.wikimedia.org", "images.pixabay.com",
+                "api.openverse.org", "images-assets.nasa.gov"})
     except ValueError:
         return False
 
@@ -202,6 +203,62 @@ def _commons(client, query):
                      license=license_name, license_url=license_url))
     except (httpx.HTTPError, ValueError, KeyError) as err:
         print("[capcut-v2] Commons search unavailable: " + type(err).__name__, flush=True)
+    return result
+
+def _openverse(client, query):
+    """Openverse CC photos via its official thumb proxy; do not fetch third party URLs."""
+    result=[]
+    try:
+        data=_request(client,"https://api.openverse.org/v1/images/",params={
+            "q":query,"page_size":8,"license_type":"commercial",
+            "mature":"false","filter_dead":"true"})
+        for entry in data.get("results") or []:
+            license_name=str(entry.get("license") or "").lower()
+            if license_name not in ("by","by-sa","cc0","pdm"):
+                continue
+            item_id=str(entry.get("id") or "")
+            if not re.fullmatch(r"[a-zA-Z0-9-]{30,45}",item_id):
+                continue
+            url=f"https://api.openverse.org/v1/images/{item_id}/thumb/?full_size=true"
+            title=_clean(entry.get("title") or "")
+            if not title:
+                continue
+            result.append(dict(source="openverse",type="image",url=url,
+                page=entry.get("foreign_landing_url") or entry.get("detail_url"),
+                title=title,author=_clean(entry.get("creator")),
+                license=license_name.upper(),license_url=entry.get("license_url") or "",
+                attribution=_clean(entry.get("attribution"))))
+    except (httpx.HTTPError,ValueError,KeyError) as err:
+        print("[capcut-v2] Openverse unavailable: "+type(err).__name__,flush=True)
+    return result
+
+def _nasa(client,query,project):
+    """NASA's public media catalog, for astronomy/space documentary projects only."""
+    signal=_tags(query+" "+str(project.get("title") or ""))
+    if not signal & {"nasa","mars","space","earth","moon","galaxy","saturn",
+        "jupiter","asteroid","nebula","cosmos","universo","astronomia","sol",
+        "apollo","universum","weltraum","galaxie"}:
+        return []
+    result=[]
+    try:
+        data=_request(client,"https://images-api.nasa.gov/search",params={
+            "q":query,"media_type":"image","page_size":8})
+        for item in ((data.get("collection") or {}).get("items") or []):
+            metadata=(item.get("data") or [{}])[0]
+            links=item.get("links") or []
+            url=links[0].get("href") if links else ""
+            if not _approved(url):
+                continue
+            title=_clean(metadata.get("title"))
+            if not title:
+                continue
+            result.append(dict(source="nasa",type="image",url=url,
+                page="https://images.nasa.gov/details/"+str(metadata.get("nasa_id") or ""),
+                title=title, author=str(metadata.get("secondary_creator") or "NASA"),
+                license="NASA Media Usage Guidelines; editorial review required",
+                license_url="https://www.nasa.gov/nasa-brand-center/images-and-media/"))
+    except (httpx.HTTPError,ValueError,KeyError) as err:
+        print("[capcut-v2] NASA unavailable: "+type(err).__name__,flush=True)
     return result
 
 def _file_ext(asset):
@@ -355,7 +412,8 @@ def _prepare(studio, pid, request):
                          illustration=False)
             pool = (_pexels(client,query,os.getenv("PEXELS_API_KEY","")) +
                     _pixabay(client,query,os.getenv("PIXABAY_API_KEY","")) +
-                    _commons(client,query))
+                    _commons(client,query) + _openverse(client,query) +
+                    _nasa(client,query,project))
             ranked = []
             for asset in pool:
                 if asset["url"] in used:
@@ -441,7 +499,7 @@ small{color:#b5c5dc}a{color:#9cc9ff}pre{white-space:pre-wrap;overflow-wrap:anywh
 <section><button onclick="status()">Consultar</button>
 <button onclick="download()">Baixar pacote editável CapCut</button>
 <pre id="out">Pronto para preparar.</pre></section>
-<small>Fontes: Pixabay, Pexels (adicione PEXELS_API_KEY) e Wikimedia Commons. Não baixa YouTube; nenhum envio ao CapCut é automático. Revise licença e correspondência das imagens.</small>
+<small>Fontes: Pixabay, Pexels (adicione PEXELS_API_KEY), Wikimedia Commons, Openverse e NASA (astronomia). Não baixa YouTube; nenhum envio ao CapCut é automático. Revise licença e correspondência das imagens.</small>
 <script>
 const base='/api/capcut-v2/projects/';
 const pid=()=>document.getElementById('pid').value.trim();
@@ -522,7 +580,7 @@ def install(studio):
         manifest=folder(studio,pid)/"plan.json"
         if manifest.exists():
             return {"status":"complete","plan":json.loads(manifest.read_text("utf-8"))}
-        return {"status":"not_prepared","available_sources":["pixabay", "wikimedia"]+
+        return {"status":"not_prepared","available_sources":["pixabay", "wikimedia","openverse","nasa"]+
           (["pexels"] if os.getenv("PEXELS_API_KEY") else []),
           "ai_optional":bool(os.getenv("GEMINI_API_KEY"))}
 
