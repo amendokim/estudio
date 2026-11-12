@@ -139,8 +139,9 @@ def _vision(studio, path, text, folder, budget):
         "reason (frase curta). Atribua 4 ou 5 somente quando a imagem "
         "representa concretamente algo dito. Não invente pessoas, países "
         "ou eventos que não são evidentes no frame.")
-    model = os.getenv("STUDIO_V3_VISION_MODEL", "gemini-2.5-flash")
-    if model not in ("gemini-2.5-flash", "gemini-2.5-flash-lite"):
+    model = os.getenv("STUDIO_V3_VISION_MODEL", "gemini-3.5-flash-lite")
+    if model not in ("gemini-3.5-flash-lite", "gemini-3.8-flash",
+                     "gemini-2.5-flash", "gemini-2.5-flash-lite"):
         raise RuntimeError("Modelo de análise visual não permitido")
     payload = {
         "contents": [{"parts": [
@@ -202,6 +203,14 @@ def _choose(studio, pid, project, index, shot, pool, length,
             if use_vision and verdict and verdict["score"] < 3:
                 continue
             return {**asset, "source_width": width, "source_height": height}, local, verdict, score
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            print("[editor-v3] Vision API HTTP " + str(code), flush=True)
+            # Authentication, model access and quota errors are not media
+            # mismatch: do not waste up to 16 requests on other clips.
+            if code in (400, 401, 403, 404, 429):
+                raise RuntimeError("Gemini visual não disponível, HTTP " +
+                                   str(code)) from exc
         except (OSError, RuntimeError, subprocess.TimeoutExpired, httpx.HTTPError,
                 ValueError, KeyError, IndexError) as exc:
             print("[editor-v3] media candidate skipped: "
@@ -612,12 +621,17 @@ def install(studio):
             print("[editor-v3] One-shot skipped: invalid project ID", flush=True)
             return
         try:
+            attempt = os.getenv("STUDIO_V3_PILOT_ATTEMPT", "1")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,12}", attempt):
+                print("[editor-v3] Invalid pilot attempt identifier", flush=True)
+                return
+            claim_id = source_id + "#" + attempt
             with studio.db() as conn:
                 conn.execute("""CREATE TABLE IF NOT EXISTS studio_editor_v3_once (
                     project_id TEXT PRIMARY KEY, started_at TEXT NOT NULL)""")
                 claimed = conn.execute(
                     "INSERT OR IGNORE INTO studio_editor_v3_once(project_id, started_at) "
-                    "VALUES(?, ?)", (source_id, _stamp()))
+                    "VALUES(?, ?)", (claim_id, _stamp()))
             if claimed.rowcount != 1:
                 print("[editor-v3] Pilot already claimed; skipping", flush=True)
                 return
@@ -633,8 +647,8 @@ def install(studio):
                 args=(studio, source_id, PreviewRequest(
                     duration_seconds=90, use_vision=option)),
                 daemon=True, name="editor-v3-authorized-pilot").start()
-            print("[editor-v3] Authorized 90s preview started, vision=" +
-                  str(option), flush=True)
+            print("[editor-v3] Authorized 90s preview started, attempt=" +
+                  attempt + ", vision=" + str(option), flush=True)
         except Exception as exc:
             print("[editor-v3] Startup pilot unavailable: " +
                   type(exc).__name__ + ": " + str(exc)[:160], flush=True)
