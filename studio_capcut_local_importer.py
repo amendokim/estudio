@@ -233,6 +233,27 @@ def make_draft(*,drafts_dir,allow_subtitles=False,open_app=False):
         except (ValueError,TypeError,RuntimeError,AttributeError):
             pass
 
+    # Factual short callouts from the optional editorial director.
+    callout_count=0
+    for scene in scenes:
+        note=" ".join(str(scene.get("v2_label") or "").split())[:65]
+        if not note:
+            continue
+        begin=float(scene["inicio_s"])+.35
+        available=float(scene["fim_s"])-begin
+        if available < 1.0:
+            continue
+        try:
+            item=cc.TextSegment(note.upper(),
+                cc.trange_seconds(begin,duration=min(2.8,available)),
+                style=cc.TextStyle(size=5.7,color=(1.,1.,1.),
+                    auto_wrapping=True,max_line_width=.75),
+                clip_settings=cc.ClipSettings(transform_y=.65))
+            script.add_segment(item,"04 · Titulos e informacoes")
+            callout_count+=1
+        except (ValueError,RuntimeError,AttributeError,TypeError):
+            pass
+
     narration=cc.AudioMaterial(str(voice))
     length=min(float(scenes[-1]["fim_s"]),float(narration.duration)/cc.SEC)
     if length<3:
@@ -272,6 +293,7 @@ def make_draft(*,drafts_dir,allow_subtitles=False,open_app=False):
     print("Cenas no fallback antigo:",missing_count)
     print("Transicoes de opacidade editaveis:",fade_count)
     print("Cartelas de capitulo:",chapter_count)
+    print("Chamadas editoriais:",callout_count)
     print("Trilha profissional propria:",music_added)
     print("Narração em trilha própria:",bool(voice))
     print("Legendas editáveis:",captions_added)
