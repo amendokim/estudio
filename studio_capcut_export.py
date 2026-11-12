@@ -246,8 +246,16 @@ def _gather(studio,project):
 
     # Deduplicate and size-bound the whole package. Preserve audio/captions,
     # then scene assets in directory order; don't silently remove essential data.
+    def packaging_priority(arc):
+        if arc.startswith(("01_audio","02_legendas")):
+            return 0
+        if arc.startswith("03_midias_locais/v2_"):
+            return 1
+        if arc=="03_midias_locais/video_final_base.mp4":
+            return 2
+        return 3
     prioritized=sorted(files.items(),key=lambda kv:
-        (0 if kv[0].startswith(("01_audio","02_legendas")) else 1,kv[0]))
+        (packaging_priority(kv[0]),kv[0]))
     included={}
     skipped=[]
     total=0
@@ -264,6 +272,13 @@ def _gather(studio,project):
         total+=size
 
     missing.extend("Omitido por segurança: "+x for x in skipped)
+    for row in rows:
+        wanted=row.get("arquivo_local_no_zip") or ""
+        if wanted and wanted not in included:
+            missing.append("Cena "+str(row["cena"])+": mídia não coube no pacote")
+            row["arquivo_local_no_zip"]=""
+            row["v2_media_type"]=""
+            row["v2_illustration"]=False
     media_count=sum(name.startswith("03_midias") for name in included)
     meta={
         "version":"capcut-handoff-v1",
