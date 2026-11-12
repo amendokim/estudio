@@ -64,7 +64,12 @@ def _tags(text):
             "that", "from", "picture", "stock", "footage", "visual", "image", "scene",
             "shots", "people", "the", "and", "una", "uma", "das", "dos", "que",
             "portugal", "documentario", "narrador"}
-    return {t for t in _norm(text).split() if len(t) >= 4 and t not in stop}
+    names={"paraguai":"paraguay","brasil":"brazil","economia":"economy",
+           "fronteira":"border","crise":"crisis","comercio":"commerce",
+           "imigracao":"migration","familia":"family","politica":"politics",
+           "lojas":"shops","cidade":"city","estrada":"road","pessoas":"people"}
+    return {names.get(t,t) for t in _norm(text).split()
+            if len(t) >= 4 and t not in stop}
 
 def _term(scene, subject):
     query = str(scene.get("query") or scene.get("search_query") or "").strip()
@@ -74,7 +79,10 @@ def _term(scene, subject):
     tokens = [x for x in tokens if x not in {"site", "youtube", "pixabay", "pexels"}]
     if len(tokens) > 7:
         tokens = tokens[:7]
-    return " ".join(tokens)[:90] or subject[:70]
+    replacements={"paraguai":"paraguay","brasil":"brazil","economia":"economy",
+                  "fronteira":"border","crise":"crisis","comercio":"commerce",
+                  "imigracao":"migration","familia":"family"}
+    return " ".join(replacements.get(t,t) for t in tokens)[:90] or subject[:70]
 
 def _semantic(query, title, scene_text=""):
     q = _tags(query)
@@ -196,7 +204,14 @@ def _commons(client, query):
     return result
 
 def _file_ext(asset):
-    return ".mp4" if asset["type"] == "video" else ".jpg"
+    if asset["type"] == "video":
+        return ".mp4"
+    path=urlsplit(asset.get("url") or "").path.lower()
+    if path.endswith(".png"):
+        return ".png"
+    if path.endswith(".webp"):
+        return ".webp"
+    return ".jpg"
 
 def _download(client, asset, path, budget):
     if not _approved(asset["url"]):
@@ -220,8 +235,8 @@ def _download(client, asset, path, budget):
                     output.write(part)
         head = temp.read_bytes()[:40]
         if asset["type"] == "image":
-            if not (head.startswith(b"\\xff\\xd8") or
-                    head.startswith(b"\\x89PNG") or
+            if not (head.startswith(bytes((255,216))) or
+                    head.startswith(bytes((137,80,78,71))) or
                     head.startswith(b"RIFF") and b"WEBP" in head):
                 raise RuntimeError("Imagem inválida")
         else:
@@ -425,6 +440,7 @@ def self_test():
     assert not _approved("https://cdn.pixabay.com.evil.org/a")
     assert not _approved("https://127.0.0.1/a")
     assert _semantic("Paraguay frontier","Paraguay border crossing") >= 3
+    assert _semantic("Paraguai fronteira","Paraguay border crossing") >= 3
     assert _semantic("Paraguay frontier","beautiful generic sunset") == 0
     assert _semantic("Brazil economy","Paraguay crisis") == 0
     print("[capcut-v2] SELF-TEST PASS matching, licensed providers, URL safety, paid opt-in",flush=True)
