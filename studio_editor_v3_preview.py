@@ -305,7 +305,11 @@ def _shot_render(studio, shot, pos, dest):
     media_seconds = _seconds(studio, src)
     if media_seconds < duration - .03:
         raise RuntimeError("Mídia curta; repetição silenciosa bloqueada")
-    offset = min(max(0., media_seconds - duration - .2), pos * 1.7 % max(1., media_seconds))
+    # Keep the actual excerpt close to the midpoint inspected by Gemini.
+    # Otherwise the verified frame and the published cut could be unrelated.
+    available = max(0., media_seconds - duration - .2)
+    offset = max(0., min(available, (media_seconds - duration) / 2
+                          + (0.65 if pos % 2 else -0.65)))
     # Overscale 6-9% before moving the crop: the legacy scale/scale cancelled
     # its zoom. This expression actually moves the crop every frame.
     margin = (1.07 if shot["style"] == "wide" else 1.12)
