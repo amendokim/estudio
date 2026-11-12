@@ -268,8 +268,8 @@ def _qa(plan, use_vision):
     long_shots = [s for s in shots if s["seconds"] > 6.5]
     verified = [s for s in shots if (s.get("visual_match") or {}).get("score", 0) >= 3]
     errors = []
-    if len(shots) < 15:
-        errors.append("Pouca variedade de cortes para 90 segundos")
+    if len(shots) < math.ceil(plan["duration_seconds"] / 6):
+        errors.append("Pouca variedade de cortes para a duração solicitada")
     if len(unique) < max(5, math.ceil(len(shots) / 3)):
         errors.append("Poucas fontes diferentes; repetição excessiva")
     if originals:
@@ -365,11 +365,16 @@ def _render(studio, pid, project, p, plan, folder):
                   "-c", "copy", "-movflags", "+faststart", str(silent)],
          timeout=300)
     voice = studio.safe_local_media(project.get("narration") or "")
+    if voice and _seconds(studio, voice) < plan["duration_seconds"] - 1.3:
+        raise RuntimeError("Áudio original insuficiente para 90 segundos")
     if not voice:
         raise RuntimeError("Narração original não encontrada")
     title = folder / "titles.ass"
     _title_ass(title, project.get("title") or "Estúdio IA", plan["duration_seconds"])
     ass = str(title.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+    # Reuse the actual subtitling chain instead of forcing a title-only edit.
+    caption_ass, _ = studio.subtitles_for(p, folder, 1280, 720)
+    captions = str(Path(caption_ass).resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
     args = ["-i", str(silent), "-i", str(voice)]
     has_music = bool(project.get("soundtrack"))
     if has_music:
@@ -378,7 +383,7 @@ def _render(studio, pid, project, p, plan, folder):
             args += ["-stream_loop", "-1", "-i", str(music)]
         else:
             has_music = False
-    args += ["-vf", f"ass={ass}"]
+    args += ["-vf", f"ass={ass},ass={captions}"]
     if has_music:
         args += ["-filter_complex", longform.AUDIO_MIX_FILTER,
                  "-map", "0:v:0", "-map", "[aout]"]
@@ -521,7 +526,7 @@ def self_test():
     picked, seconds = _pick_scenes({"scenes": scenes}, 90)
     assert len(picked) == 2 and abs(seconds - 90) < .01
     assert picked[1]["duration"] == 67.5
-    shot = {"seconds": 4, "asset": {"media_url": "a",
+    shot = {"seconds": 90/23, "asset": {"media_url": "a",
             "media_provider": "pixabay"}, "visual_match": {"score": 4}}
     plan = {"duration_seconds": 90, "timeline": [
         {"shots": [{**shot, "asset": {**shot["asset"], "media_url": str(i//2)}}
