@@ -112,7 +112,7 @@ def _frame(studio, path, out):
     duration = _seconds(studio, path)
     if duration <= 0:
         raise RuntimeError("Não foi possível inspecionar a duração do vídeo")
-    _run(studio, ["-ss", str(min(1.5, duration / 2)), "-i", str(path),
+    _run(studio, ["-ss", str(duration / 2), "-i", str(path),
                   "-vf", "scale=512:-2", "-frames:v", "1", "-q:v", "6",
                   str(out)], timeout=50)
     if not out.is_file() or out.stat().st_size > 350_000:
@@ -148,7 +148,7 @@ def _vision(studio, path, text, folder, budget):
             {"inline_data": {"mime_type": "image/jpeg",
                              "data": base64.b64encode(thumb.read_bytes()).decode()}}
         ]}],
-        "generationConfig": {"temperature": 0, "maxOutputTokens": 280,
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 768,
                              "responseMimeType": "application/json"}
     }
     with httpx.Client(timeout=50) as client:
@@ -232,28 +232,40 @@ def _plan(studio, pid, project, seconds, use_vision, folder):
     checked = {}
     timeline = []
     missing_verification = 0
-    for index, (scene, seq) in enumerate(zip(scenes, lengths)):
-        shot = story["scenes"][index]
-        pool = montage.source_pool(studio, p, index, shot)
-        if not pool:
-            raise RuntimeError(f"Cena {index+1} sem material apropriado")
-        parts = []
-        for j, length in enumerate(seq):
-            asset, local, verdict, meta = _choose(
-                studio, pid, p, index, shot, pool, length,
-                counts, checked, folder, use_vision, budget)
-            key = _asset_id(asset)
-            counts[key] = counts.get(key, 0) + 1
-            counts["_last"] = key
-            if use_vision and verdict is None:
-                missing_verification += 1
-            parts.append({
-                "seconds": length, "asset": asset, "path": str(local),
-                "visual_match": verdict, "metadata_score": meta,
-                "style": ["subtle_pan", "close_detail", "wide"][j % 3],
-                "editorial_intent": shot.get("visual_intent") or "context"})
-        timeline.append({"narration": str(scene.get("text") or "")[:200],
-                         "seconds": scene["duration"], "shots": parts})
+    search_cache = {}
+    found_urls = set()
+    pixabay_key = os.getenv("PIXABAY_API_KEY", "")
+    with httpx.Client(timeout=13, follow_redirects=False) as client:
+        for index, (scene, seq) in enumerate(zip(scenes, lengths)):
+            shot = story["scenes"][index]
+            pool = montage.source_pool(studio, p, index, shot)
+            # A new query per narrated scene is more useful than reusing a small
+            # collection of vaguely related clips from the first search batch.
+            for extra in montage.extra_pixabay(
+                    studio, shot, client, pixabay_key, search_cache, found_urls):
+                key = _asset_id(extra)
+                if key and key not in {_asset_id(x) for x in pool}:
+                    pool.append(extra)
+                    found_urls.add(key)
+            if not pool:
+                raise RuntimeError(f"Cena {index+1} sem material apropriado")
+            parts = []
+            for j, length in enumerate(seq):
+                asset, local, verdict, meta = _choose(
+                    studio, pid, p, index, shot, pool, length,
+                    counts, checked, folder, use_vision, budget)
+                key = _asset_id(asset)
+                counts[key] = counts.get(key, 0) + 1
+                counts["_last"] = key
+                if use_vision and verdict is None:
+                    missing_verification += 1
+                parts.append({
+                    "seconds": length, "asset": asset, "path": str(local),
+                    "visual_match": verdict, "metadata_score": meta,
+                    "style": ["subtle_pan", "close_detail", "wide"][j % 3],
+                    "editorial_intent": shot.get("visual_intent") or "context"})
+            timeline.append({"narration": str(scene.get("text") or "")[:200],
+                             "seconds": scene["duration"], "shots": parts})
     return p, {
         "version": VERSION, "duration_seconds": round(actual, 3),
         "storyboard_source": source, "vision_calls": budget["used"],
@@ -427,6 +439,11 @@ def _do(studio, pid, request):
             if not qa["approved"]:
                 raise RuntimeError("Revisão de qualidade: " + "; ".join(qa["errors"]))
             file = _render(studio, pid, project, p, plan, folder)
+            # Preserve the MP4, editorial plan and sources; discard large
+            # intermediates once the preview has been verified.
+            for segment in folder.glob("shot_*.mp4"):
+                segment.unlink(missing_ok=True)
+            (folder / "picture.mp4").unlink(missing_ok=True)
             _state(pid, status="completed", progress=100, quality=qa,
                    video_url=f"/api/editor-v3/projects/{pid}/video",
                    file_bytes=file.stat().st_size)
@@ -488,6 +505,8 @@ def install(studio):
         project = studio.get_project(pid)
         if project.get("status") != "concluído":
             raise HTTPException(409, "Selecione projeto concluído")
+        if request.use_vision and not os.getenv("GEMINI_API_KEY"):
+            raise HTTPException(422, "Configure Gemini antes de habilitar análise de quadros")
         with STATE_LOCK:
             ongoing = STATE.get(pid, {}).get("status") in ("planning", "rendering")
             if ongoing:
