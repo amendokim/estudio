@@ -191,6 +191,9 @@ def _choose(studio, pid, project, index, shot, pool, length,
             local = _clip(studio, pid, project["scenes"][index], asset, index)
             if _seconds(studio, local) + .03 < length:
                 continue
+            width, height = _video_size(studio, local)
+            if width < 960 or height < 540:
+                continue
             verdict = checked.get((index, key))
             if use_vision and verdict is None and budget["used"] < MAX_VISION_CALLS:
                 verdict = _vision(studio, local, shot["scene_excerpt"],
@@ -198,7 +201,7 @@ def _choose(studio, pid, project, index, shot, pool, length,
                 checked[index, key] = verdict
             if use_vision and verdict and verdict["score"] < 3:
                 continue
-            return asset, local, verdict, score
+            return {**asset, "source_width": width, "source_height": height}, local, verdict, score
         except (OSError, RuntimeError, subprocess.TimeoutExpired, httpx.HTTPError,
                 ValueError, KeyError, IndexError) as exc:
             print("[editor-v3] media candidate skipped: "
@@ -207,6 +210,71 @@ def _choose(studio, pid, project, index, shot, pool, length,
     raise RuntimeError(
         f"Cena {index + 1}: não encontrei clipes relevantes e não repetidos. "
         "Prévia bloqueada em vez de criar preenchimento artificial.")
+
+
+def _video_size(studio, path):
+    done = subprocess.run([
+        studio.FFPROBE, "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height", "-of", "json", str(path)
+    ], capture_output=True, text=True, timeout=25)
+    if done.returncode:
+        return 0, 0
+    try:
+        entry = (json.loads(done.stdout).get("streams") or [{}])[0]
+        return int(entry.get("width") or 0), int(entry.get("height") or 0)
+    except (ValueError, TypeError, KeyError, IndexError):
+        return 0, 0
+
+
+def _extra_hd_pixabay(studio, shot, client, key, cache, used):
+    """Prefer actual HD sources; the legacy selector favored tiny encodes."""
+    if not key:
+        return []
+    import studio_semantic_media as semantic
+    found = []
+    for query in shot.get("queries", [])[:2]:
+        if query not in cache:
+            if len(cache) >= 20:
+                break
+            try:
+                response = client.get("https://pixabay.com/api/videos/",
+                    params={"key": key, "q": query, "lang": "en",
+                            "per_page": 25, "safesearch": "true"})
+                response.raise_for_status()
+                cache[query] = response.json().get("hits") or []
+            except (httpx.HTTPError, ValueError):
+                cache[query] = []
+        for hit in cache.get(query, []):
+            tags = str(hit.get("tags") or "")
+            score = semantic._relevant_candidate(shot, tags)
+            if score < semantic.MIN_SCORE:
+                continue
+            page = str(hit.get("pageURL") or "")
+            if not page.startswith("https://pixabay.com/"):
+                continue
+            candidate = None
+            for name in ("medium", "large", "small"):
+                media = (hit.get("videos") or {}).get(name) or {}
+                url = str(media.get("url") or "")
+                size = int(media.get("size") or 0)
+                width = int(media.get("width") or 0)
+                height = int(media.get("height") or 0)
+                if (url and 0 < size <= 32 * 1024 * 1024
+                        and (not width or width >= 960)
+                        and (not height or height >= 540)
+                        and studio._approved_url(url, "pixabay")):
+                    candidate = {
+                        "media_url": url, "media_local": "", "media_kind": "video",
+                        "media_provider": "pixabay", "source_page": page,
+                        "author": str(hit.get("user") or "") +
+                            " | Pixabay | " + tags,
+                        "source_width": width, "source_height": height,
+                        "source_bytes": size}
+                    break
+            if candidate and _asset_id(candidate) not in used:
+                found.append((score, candidate))
+    found.sort(key=lambda item: -item[0])
+    return [asset for _, asset in found[:5]]
 
 
 def _plan(studio, pid, project, seconds, use_vision, folder):
@@ -241,7 +309,7 @@ def _plan(studio, pid, project, seconds, use_vision, folder):
             pool = montage.source_pool(studio, p, index, shot)
             # A new query per narrated scene is more useful than reusing a small
             # collection of vaguely related clips from the first search batch.
-            for extra in montage.extra_pixabay(
+            for extra in _extra_hd_pixabay(
                     studio, shot, client, pixabay_key, search_cache, found_urls):
                 key = _asset_id(extra)
                 if key and key not in {_asset_id(x) for x in pool}:
