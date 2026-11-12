@@ -452,6 +452,42 @@ function download(){window.location='/api/capcut/projects/'+encodeURIComponent(p
 </script></html>"""
 
 def install(studio):
+    @studio.app.on_event("startup")
+    def prepare_one_free_pilot():
+        # Opt-in once on the persistent Railway volume. Does not call Gemini,
+        # does not publish or alter previous renders.
+        if os.getenv("STUDIO_CAPCUT_V2_FREE_PILOT","0")!="1":
+            return
+        pid=os.getenv("STUDIO_CAPCUT_V2_PILOT_PROJECT","")
+        if not re.fullmatch(r"[a-fA-F0-9-]{36}",pid):
+            print("[capcut-v2] Pilot source ID invalid",flush=True)
+            return
+        try:
+            with studio.db() as conn:
+                conn.execute("""CREATE TABLE IF NOT EXISTS capcut_v2_pilot_claims (
+                      project_id TEXT PRIMARY KEY,created_at TEXT NOT NULL)""")
+                cur=conn.execute(
+                    "INSERT OR IGNORE INTO capcut_v2_pilot_claims(project_id,created_at) "
+                    "VALUES(?,?)",(pid,stamp()))
+            if cur.rowcount!=1:
+                print("[capcut-v2] Pilot already claimed",flush=True)
+                return
+            project=studio.get_project(pid)
+            if project.get("status")!="concluído":
+                print("[capcut-v2] Pilot skipped: project not completed",flush=True)
+                return
+            with LOCK:
+                if pid in RUNNING:
+                    return
+                RUNNING[pid]=True
+                RESULTS[pid]={"status":"queued","total":8}
+            threading.Thread(target=_work,args=(
+                studio,pid,PrepareRequest(max_scenes=8,ai_images=0,ai_direction=False)),
+                daemon=True,name="capcut-v2-free-pilot").start()
+            print("[capcut-v2] Started free media pilot, 8 scenes",flush=True)
+        except Exception as exc:
+            print("[capcut-v2] Startup pilot failed: "+type(exc).__name__,flush=True)
+
     @studio.app.get("/capcut-v2", response_class=HTMLResponse)
     def page():
         return HTMLResponse(PAGE)
