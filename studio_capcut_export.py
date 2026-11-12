@@ -232,6 +232,8 @@ def _gather(studio,project):
                         rows[index-1]["origem_usada"]=str(record.get("source") or "")[:50]
                         rows[index-1]["v2_illustration"]=bool(record.get("illustration"))
                         rows[index-1]["v2_media_type"]=str(record.get("type") or "")
+                        rows[index-1]["v2_beat"]=str(record.get("visual_kind") or "")[:24]
+                        rows[index-1]["v2_label"]=str(record.get("on_screen") or "")[:65]
                         licenses.append({"cena":index,
                             "origem":record.get("source") or "",
                             "pagina_da_fonte":record.get("page") or "",
